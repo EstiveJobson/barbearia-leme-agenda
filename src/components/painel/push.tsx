@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
+import { useDemoMode } from "@/components/demo-banner";
 import { fetchPushSetup, savePushSubscription } from "@/lib/painel/painel.functions";
+import { DEMO_PUSH_DISABLED } from "@/lib/painel/gate";
 
 function urlBase64ToUint8Array(value: string): Uint8Array {
   const padding = "=".repeat((4 - (value.length % 4)) % 4);
@@ -11,15 +13,17 @@ function urlBase64ToUint8Array(value: string): Uint8Array {
 }
 
 export function PushNotices() {
+  const demo = useDemoMode();
   const [publicKey, setPublicKey] = useState<string | null>(null);
   const [active, setActive] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (demo) return;
     let cancel = false;
     void fetchPushSetup().then(async (result) => {
-      if (cancel || !result.ok || !result.enabled) return;
+      if (cancel || !("ok" in result) || !result.ok || !result.enabled) return;
       setPublicKey(result.publicKey);
       if (!("serviceWorker" in navigator)) return;
       const registration = await navigator.serviceWorker.getRegistration();
@@ -29,7 +33,11 @@ export function PushNotices() {
     return () => {
       cancel = true;
     };
-  }, []);
+  }, [demo]);
+
+  if (demo) {
+    return <p className="text-pretty text-sm text-mist">{DEMO_PUSH_DISABLED}</p>;
+  }
 
   if (!publicKey) return null;
 
@@ -60,7 +68,7 @@ export function PushNotices() {
           auth: keys?.auth ?? "",
         },
       });
-      if (!saved.ok) {
+      if (!("ok" in saved) || !saved.ok) {
         setError("message" in saved && saved.message ? saved.message : "Não foi possível ativar os avisos.");
         return;
       }

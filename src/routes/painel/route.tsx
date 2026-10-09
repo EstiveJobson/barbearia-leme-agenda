@@ -1,12 +1,12 @@
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
+import { panelLoginRedirect } from "@/lib/painel/gate";
 import { fetchPanelGate } from "@/lib/painel/painel.functions";
 
 export const Route = createFileRoute("/painel")({
   beforeLoad: async ({ location }) => {
     const gate = await fetchPanelGate();
-    const onLogin = location.pathname === "/painel/entrar";
-    if (!gate.ok && !onLogin) throw redirect({ to: "/painel/entrar" });
-    if (gate.ok && onLogin) throw redirect({ to: "/painel" });
+    const target = panelLoginRedirect(gate.ok, location.pathname);
+    if (target) throw redirect({ to: target });
   },
   head: () => ({
     meta: [

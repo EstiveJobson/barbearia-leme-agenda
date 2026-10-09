@@ -1,5 +1,7 @@
 import { createRootRoute, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
+import { DemoBanner } from "@/components/demo-banner";
 import { AuthProvider } from "@/lib/auth/provider";
+import { fetchDemoMode } from "@/lib/demo/demo.functions";
 import { NotFoundPage } from "@/lib/error-component";
 import { getPublicSiteUrl } from "@/lib/public-site-url";
 import { shop } from "@/shop-config";
@@ -8,9 +10,12 @@ import appCss from "../styles.css?url";
 const title = `${shop.name} | Estilo e tradição em Lauro de Freitas`;
 
 export const Route = createRootRoute({
-  loader: () => getPublicSiteUrl(),
+  loader: async () => {
+    const [siteUrl, demo] = await Promise.all([getPublicSiteUrl(), fetchDemoMode()]);
+    return { siteUrl, demo: demo.enabled };
+  },
   head: ({ loaderData }) => {
-    const siteUrl = loaderData ?? "http://127.0.0.1:8080";
+    const siteUrl = loaderData?.siteUrl ?? "http://127.0.0.1:8080";
     const shareImage = `${siteUrl}/og.jpg`;
     return {
       meta: [
@@ -47,17 +52,20 @@ export const Route = createRootRoute({
     };
   },
   notFoundComponent: NotFoundPage,
-  component: () => (
-    <html lang="pt-BR" suppressHydrationWarning>
-      <head>
-        <HeadContent />
-      </head>
-      <body>
-        <AuthProvider>
-          <Outlet />
-        </AuthProvider>
-        <Scripts />
-      </body>
-    </html>
-  ),
+  component: function RootDocument() {
+    return (
+      <html lang="pt-BR" suppressHydrationWarning>
+        <head>
+          <HeadContent />
+        </head>
+        <body>
+          <DemoBanner />
+          <AuthProvider>
+            <Outlet />
+          </AuthProvider>
+          <Scripts />
+        </body>
+      </html>
+    );
+  },
 });
