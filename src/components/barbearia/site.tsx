@@ -90,7 +90,7 @@ export function Site() {
   }, [lightbox]);
 
   function book(serviceId: string) {
-    setBooking((s) => ({ ...s, serviceId, step: 2 }));
+    setBooking((s) => ({ ...s, serviceId, time: null, step: 2 }));
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     document.getElementById("agendar")?.scrollIntoView({
       behavior: reduce ? "auto" : "smooth",

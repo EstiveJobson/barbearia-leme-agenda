@@ -1,6 +1,6 @@
 # Barbearia Leme — agenda demo
 
-Public demonstration of the **Site com Agenda** package (package 3) for Barbearia Leme. The marketing site is the same brand as [barbearia-leme](https://github.com/EstiveJobson/barbearia-leme). This repository was copied from that project with a fresh git history. The booking flow itself is rebuilt in a later change; this commit is the base: the current public site, plus a multi-shop Postgres schema and seed.
+Public demonstration of the **Site com Agenda** package (package 3) for Barbearia Leme. The marketing site is the same brand as [barbearia-leme](https://github.com/EstiveJobson/barbearia-leme). Customers book a real slot: the server checks the shop's hours, active bookings, and blocks, then saves the row.
 
 The footer of the site says **Site de demonstração**.
 
@@ -25,7 +25,7 @@ npm install
 npm run dev
 ```
 
-The dev server listens on `http://127.0.0.1:8080`. With `DATABASE_URL` unset, the app uses an in-memory PGLite database and applies `migrations/*.sql` on startup. The public pages still read their copy from `src/shop-config.ts`, so the site works before you seed anything.
+The dev server listens on `http://127.0.0.1:8080`. With `DATABASE_URL` unset, the app uses an in-memory PGLite database, applies `migrations/*.sql`, and seeds Barbearia Leme plus the fictional test shop so the public booking flow works. Set `ADMIN_PASSWORD` first if you also want local owner hashes.
 
 Do not set `NODE_ENV=production` without `DATABASE_URL`. Production refuses to fall back to PGLite.
 
