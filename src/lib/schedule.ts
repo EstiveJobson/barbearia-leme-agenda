@@ -150,21 +150,6 @@ export function brl(value: number) {
   return `R$ ${value.toLocaleString("pt-BR")}`;
 }
 
-export function waDigits() {
-  const raw = shop.whatsapp.trim();
-  const digits = raw.replace(/\D/g, "");
-  if (!digits) return raw;
-  return digits.startsWith("55") ? digits : `55${digits}`;
-}
-
-export function waLink(message: string) {
-  return `https://wa.me/${waDigits()}?text=${encodeURIComponent(message)}`;
-}
-
-export function generalWaLink() {
-  return waLink(`Olá! Vim pelo site da ${shop.name} e quero falar com vocês.`);
-}
-
 export function barberName(id: string | null) {
   if (!id || id === ANY_BARBER) return "Sem preferência";
   return shop.barbers.find((b) => b.id === id)?.name ?? "Sem preferência";

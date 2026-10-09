@@ -1,7 +1,8 @@
 /**
  * Single source for the public Barbearia Leme site content.
- * Visible copy, prices, staff, hours, and WhatsApp all come from here.
- * Agenda rows in Postgres are seeded from this module (see scripts/seed.mjs).
+ * Visible copy, prices, staff, and hours come from here.
+ * The shop WhatsApp number is not stored here. It is seeded into shops.whatsapp
+ * (see src/lib/agenda/catalog.ts) and links are built on the server from that row.
  */
 
 export type Service = {
@@ -42,11 +43,6 @@ export type Shop = {
   timezone: string;
   cityLine: string;
   seoDescription: string;
-  /**
-   * WhatsApp: area code + number, digits only, without the 55 country code.
-   * Example: 71912345678
-   */
-  whatsapp: string;
   instagram: string;
   address: string;
   mapQuery: string;
@@ -73,7 +69,6 @@ export const shop: Shop = {
   cityLine: "Lauro de Freitas — BA",
   seoDescription:
     "Barbearia Leme, no Centro de Lauro de Freitas. Corte, barba e pigmentação com horário marcado pelo WhatsApp. Terça a sábado.",
-  whatsapp: "71994130031",
   instagram: "barbearialeme",
   address: "Av. Santos Dumont, 450 — Centro, Lauro de Freitas — BA",
   mapQuery: "Av. Santos Dumont, 450, Centro, Lauro de Freitas, Bahia, Brasil",

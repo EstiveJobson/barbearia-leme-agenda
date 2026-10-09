@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Instagram, MapPin, Menu, Star, X } from "lucide-react";
 import { shop } from "@/shop-config";
-import { brl, generalWaLink, hoursLine } from "@/lib/schedule";
+import { brl, hoursLine } from "@/lib/schedule";
 import { Booking, initialBooking, type BookingState } from "@/components/barbearia/booking";
 
 const NAV = [
@@ -43,7 +43,7 @@ function WhatsAppIcon({ className }: { className?: string }) {
   );
 }
 
-export function Site() {
+export function Site({ shopWhatsApp }: { shopWhatsApp: string | null }) {
   const [open, setOpen] = useState(false);
   const [booking, setBooking] = useState<BookingState>(initialBooking);
   const [lightbox, setLightbox] = useState<number | null>(null);
@@ -90,7 +90,7 @@ export function Site() {
   }, [lightbox]);
 
   function book(serviceId: string) {
-    setBooking((s) => ({ ...s, serviceId, step: 2 }));
+    setBooking((s) => ({ ...s, serviceId, time: null, step: 2 }));
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     document.getElementById("agendar")?.scrollIntoView({
       behavior: reduce ? "auto" : "smooth",
@@ -107,7 +107,6 @@ export function Site() {
     });
   }
 
-  const wa = generalWaLink();
   const mapSrc = `https://maps.google.com/maps?q=${encodeURIComponent(shop.mapQuery)}&z=16&hl=pt-BR&output=embed`;
   const mapHref = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(shop.mapQuery)}`;
   const shot = lightbox !== null ? shop.gallery[lightbox] : null;
@@ -183,6 +182,16 @@ export function Site() {
             >
               Agende seu horário
             </a>
+            {shopWhatsApp && (
+              <a
+                href={shopWhatsApp}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex min-h-12 items-center justify-center border border-gold px-6 py-3 font-display text-xl tracking-widest text-gold uppercase"
+              >
+                WhatsApp
+              </a>
+            )}
             <p className="text-sm tracking-wide text-cream/75 uppercase">{hoursLine()}</p>
           </div>
         </div>
@@ -343,15 +352,17 @@ export function Site() {
               >
                 <Instagram className="size-5" />
               </a>
-              <a
-                href={wa}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label="WhatsApp"
-                className="grid size-11 place-items-center border border-line text-cream"
-              >
-                <WhatsAppIcon className="size-5" />
-              </a>
+              {shopWhatsApp && (
+                <a
+                  href={shopWhatsApp}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="WhatsApp"
+                  className="grid size-11 place-items-center border border-line text-cream"
+                >
+                  <WhatsAppIcon className="size-5" />
+                </a>
+              )}
             </div>
           </div>
           <div className="text-sm text-mist md:text-right">
@@ -363,17 +374,19 @@ export function Site() {
         </div>
       </footer>
 
-      <a
-        href={wa}
-        target="_blank"
-        rel="noopener noreferrer"
-        aria-label="WhatsApp da barbearia"
-        className={`fixed right-4 bottom-4 z-40 grid size-14 place-items-center bg-gold text-ink shadow-lg transition-opacity duration-300 ${
-          open ? "hidden" : ""
-        } ${hideWa ? "max-md:pointer-events-none max-md:opacity-0" : ""}`}
-      >
-        <WhatsAppIcon className="size-7" />
-      </a>
+      {shopWhatsApp && (
+        <a
+          href={shopWhatsApp}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="WhatsApp da barbearia"
+          className={`fixed right-4 bottom-4 z-40 grid size-14 place-items-center bg-gold text-ink shadow-lg transition-opacity duration-300 ${
+            open ? "hidden" : ""
+          } ${hideWa ? "max-md:pointer-events-none max-md:opacity-0" : ""}`}
+        >
+          <WhatsAppIcon className="size-7" />
+        </a>
+      )}
 
       {shot && lightbox !== null && (
         <div

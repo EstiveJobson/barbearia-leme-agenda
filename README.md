@@ -1,6 +1,6 @@
 # Barbearia Leme — agenda demo
 
-Public demonstration of the **Site com Agenda** package (package 3) for Barbearia Leme. The marketing site is the same brand as [barbearia-leme](https://github.com/EstiveJobson/barbearia-leme). This repository was copied from that project with a fresh git history. The booking flow itself is rebuilt in a later change; this commit is the base: the current public site, plus a multi-shop Postgres schema and seed.
+Public demonstration of the **Site com Agenda** package (package 3) for Barbearia Leme. The marketing site is the same brand as [barbearia-leme](https://github.com/EstiveJobson/barbearia-leme). Customers book a real slot: the server checks the shop's hours, active bookings, and blocks, then saves the row.
 
 The footer of the site says **Site de demonstração**.
 
@@ -25,7 +25,7 @@ npm install
 npm run dev
 ```
 
-The dev server listens on `http://127.0.0.1:8080`. With `DATABASE_URL` unset, the app uses an in-memory PGLite database and applies `migrations/*.sql` on startup. The public pages still read their copy from `src/shop-config.ts`, so the site works before you seed anything.
+The dev server listens on `http://127.0.0.1:8080`. With `DATABASE_URL` unset, the app uses an in-memory PGLite database, applies `migrations/*.sql`, and seeds Barbearia Leme plus the fictional test shop so the public booking flow works. Set `ADMIN_PASSWORD` first if you also want local owner hashes.
 
 Do not set `NODE_ENV=production` without `DATABASE_URL`. Production refuses to fall back to PGLite.
 
@@ -45,7 +45,7 @@ npm run db:seed
 `db:seed` is idempotent. It upserts:
 
 - **Barbearia Leme** (`slug` `barbearia-leme`, timezone `America/Bahia`) with the services, prices, durations, barbers, and weekly hours from `src/shop-config.ts`
-- **Barbearia Teste** (`slug` `barbearia-teste`, timezone `America/Manaus`) with 2 barbers, 3 services, and weekly hours, used only for isolation tests
+- **Barbearia Teste** (`slug` `barbearia-teste`, timezone `America/Manaus`) with 2 barbers, 3 services, and weekly hours, used only for isolation tests. It has no WhatsApp number, so the missing-number path can be checked without touching Leme.
 
 Each shop gets one `owner_accounts` row. Both password hashes are bcrypt hashes of `ADMIN_PASSWORD`. The plain password is not stored.
 
@@ -56,6 +56,8 @@ If `DATABASE_URL` is missing, `db:seed` exits with an error. `db:migrate` does t
 - Booking times are `timestamptz` (UTC). Weekly hours are wall-clock times in `shops.timezone`.
 - An active booking is unique on `(shop_id, barber_id, starts_at)`, so the same slot cannot be taken twice.
 - Server queries on business tables filter by `shop_id`. That id comes from the server (the public shop slug `barbearia-leme`, or later the owner session), never from the browser.
+- Shop WhatsApp links are built on the server from `shops.whatsapp` (digits with DDD, no country code). A shop with no number does not get a fallback: the booking is still saved, the success screen explains that, and the site hides the WhatsApp buttons.
+- Confirm attempts are counted in `rate_limits`: 8 per 10-minute window. The key is the route name plus a SHA-256 of the IP, so the raw address is not stored. Over the limit the confirm responds with HTTP 429.
 
 ## Environment variables
 
@@ -94,6 +96,7 @@ Deployment is handled separately. This repository does not create a Vercel proje
 
 ```
 migrations/0001_agenda.sql     shops, barbers, services, weekly_schedule, blocks, bookings, owner_accounts
+migrations/0002_rate_limits.sql confirm rate-limit windows
 scripts/migrate.mjs            Neon migrator
 scripts/seed.mjs               Neon seed
 src/shop-config.ts             public site content (also the Leme seed source)
