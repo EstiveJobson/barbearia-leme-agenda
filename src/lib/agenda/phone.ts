@@ -62,3 +62,13 @@ export function parseBrazilianPhone(raw: string): PhoneResult {
   }
   return { ok: true, digits };
 }
+
+/**
+ * Opens a chat with the customer. Not the shop's WhatsApp.
+ * Stored phones are digits with DDD. Returns null when the number is missing.
+ */
+export function customerWhatsAppLink(phone: string | null | undefined): string | null {
+  const digits = phoneDigits(phone ?? "");
+  if (digits.length !== 10 && digits.length !== 11) return null;
+  return `https://wa.me/55${digits}`;
+}
