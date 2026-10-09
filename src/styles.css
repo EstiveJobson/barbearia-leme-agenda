@@ -1,0 +1,97 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Barlow Condensed", "Arial Narrow", Impact, sans-serif;
+  --font-sans: "Outfit", system-ui, sans-serif;
+  --color-ink: #090909;
+  --color-panel: #12110f;
+  --color-panel-2: #1c1915;
+  --color-cream: #f3efe6;
+  --color-mist: #a69e90;
+  --color-gold: #d4b072;
+  --color-line: #2e2a24;
+}
+
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background: var(--color-ink);
+    color: var(--color-cream);
+    font-family: var(--font-sans);
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background: #d4b072;
+    color: #090909;
+  }
+
+  :focus-visible {
+    outline: 2px solid #d4b072;
+    outline-offset: 3px;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.reveal {
+  animation: rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.step-in {
+  animation: rise 0.38s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.hero-shade {
+  background:
+    linear-gradient(180deg, rgba(9, 9, 9, 0.45) 0%, rgba(9, 9, 9, 0.18) 34%, rgba(9, 9, 9, 0.92) 100%),
+    linear-gradient(90deg, rgba(9, 9, 9, 0.78) 0%, rgba(9, 9, 9, 0.2) 62%, rgba(9, 9, 9, 0.35) 100%);
+}
+
+.header-bar {
+  background: rgba(9, 9, 9, 0.94);
+  border-bottom: 1px solid var(--color-line);
+  backdrop-filter: blur(12px);
+}
+
+.header-top {
+  background: linear-gradient(180deg, rgba(9, 9, 9, 0.78), rgba(9, 9, 9, 0));
+  border-bottom-color: transparent;
+}
+
+.ratio-portrait {
+  aspect-ratio: 3 / 4;
+}
+
+.map-frame {
+  filter: grayscale(1) invert(0.92) contrast(1.05) hue-rotate(170deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .reveal,
+  .step-in {
+    animation: none;
+  }
+}
