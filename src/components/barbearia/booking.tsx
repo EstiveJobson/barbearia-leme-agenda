@@ -43,7 +43,8 @@ type Success = {
   dayLabel: string;
   time: string;
   priceLabel: string;
-  waUrl: string;
+  waUrl: string | null;
+  waNotice: string | null;
 };
 
 function scrollToBooking() {
@@ -233,8 +234,12 @@ export function Booking({
       }
       setSuccess(result.result);
       setTakenNote(null);
-      if (popup) popup.location.href = result.result.waUrl;
-      else window.open(result.result.waUrl, "_blank", "noopener,noreferrer");
+      if (result.result.waUrl) {
+        if (popup) popup.location.href = result.result.waUrl;
+        else window.open(result.result.waUrl, "_blank", "noopener,noreferrer");
+      } else {
+        popup?.close();
+      }
     } catch {
       popup?.close();
       setFormError("Não foi possível concluir o agendamento. Tente de novo.");
@@ -254,7 +259,9 @@ export function Booking({
             Agendamento confirmado!
           </h2>
           <p className="mt-4 max-w-xl text-pretty text-mist">
-            O horário ficou reservado. Se o WhatsApp não abriu, use o botão abaixo.
+            {success.waUrl
+              ? "O horário ficou reservado. Se o WhatsApp não abriu, use o botão abaixo."
+              : success.waNotice}
           </p>
           <dl className="mt-8 divide-y divide-line border-y border-line text-sm">
             <SummaryRow label="Serviço" value={success.serviceName} />
@@ -263,14 +270,16 @@ export function Booking({
             <SummaryRow label="Horário" value={success.time} />
             <SummaryRow label="Preço" value={success.priceLabel} strong />
           </dl>
-          <a
-            href={success.waUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-6 flex min-h-12 items-center justify-center bg-gold px-5 py-3 text-center font-display text-xl tracking-widest text-ink uppercase"
-          >
-            Abrir WhatsApp
-          </a>
+          {success.waUrl && (
+            <a
+              href={success.waUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-6 flex min-h-12 items-center justify-center bg-gold px-5 py-3 text-center font-display text-xl tracking-widest text-ink uppercase"
+            >
+              Abrir WhatsApp
+            </a>
+          )}
           <button
             type="button"
             onClick={() => {

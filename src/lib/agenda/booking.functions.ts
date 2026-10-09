@@ -99,6 +99,11 @@ export const submitBooking = createServerFn({ method: "POST" })
       const result = await confirmBooking(data, ip);
       return { ok: true as const, result };
     } catch (err) {
-      return failure(err);
+      const failed = failure(err);
+      if (failed.code === "rate_limited") {
+        const { setResponseStatus } = await import("@tanstack/react-start/server");
+        setResponseStatus(429);
+      }
+      return failed;
     }
   });

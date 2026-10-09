@@ -4,9 +4,8 @@ import { bookingWindow } from "@/lib/agenda/time";
 import { parseBrazilianPhone } from "@/lib/agenda/phone";
 import { freeStartTimes, rangesOverlap, unionFreeTimes, type BusyRange, type Shift } from "@/lib/agenda/slots";
 import { ANY_BARBER_SLUG, BookingRejected } from "@/lib/agenda/booking-error";
-import { allowBookingAttempt } from "@/lib/agenda/rate-limit";
-
-const WA_URL = "https://wa.me/5571994130031";
+import { allowBookingAttempt, RATE_LIMIT_MESSAGE } from "@/lib/agenda/rate-limit";
+import { NO_SHOP_WHATSAPP, shopWhatsAppLink } from "@/lib/agenda/whatsapp.server";
 const DAY_COUNT = 14;
 
 const WEEKDAYS = [
@@ -57,7 +56,8 @@ export type ConfirmResult = {
   dayLabel: string;
   time: string;
   priceLabel: string;
-  waUrl: string;
+  waUrl: string | null;
+  waNotice: string | null;
 };
 
 function slugOk(value: string): boolean {
@@ -368,11 +368,8 @@ async function barberStillFree(
 }
 
 export async function confirmBooking(input: ConfirmInput, ip: string): Promise<ConfirmResult> {
-  if (!allowBookingAttempt(ip)) {
-    throw new BookingRejected(
-      "rate_limited",
-      "Muitas tentativas em pouco tempo. Espere alguns minutos e tente de novo.",
-    );
+  if (!(await allowBookingAttempt(ip))) {
+    throw new BookingRejected("rate_limited", RATE_LIMIT_MESSAGE);
   }
   const name = input.name.trim().replace(/\s+/g, " ");
   if (name.length < 2 || name.length > 80) {
@@ -431,13 +428,15 @@ export async function confirmBooking(input: ConfirmInput, ip: string): Promise<C
         const label = dayLabel(input.date);
         const time = clockLabel(input.time);
         const message = waMessage(service.name, barber.name, label, time, name);
+        const waUrl = await shopWhatsAppLink(sql, shop.id, message);
         return {
           serviceName: service.name,
           barberName: barber.name,
           dayLabel: label,
           time,
           priceLabel: priceLabel(Number(service.price_cents)),
-          waUrl: `${WA_URL}?text=${encodeURIComponent(message)}`,
+          waUrl,
+          waNotice: waUrl ? null : NO_SHOP_WHATSAPP,
         };
       }
       if (!sawBusy) {

@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { getSql } from "@/lib/db";
 import { confirmBooking, listFreeSlots } from "@/lib/agenda/booking.server";
-import { resetBookingRateLimit } from "@/lib/agenda/rate-limit";
+import { allowBookingAttempt, resetBookingRateLimit } from "@/lib/agenda/rate-limit";
+import { shopWhatsAppLink } from "@/lib/agenda/whatsapp.server";
 import { parseBrazilianPhone, maskBrazilianPhone } from "@/lib/agenda/phone";
 import { freeStartTimes } from "@/lib/agenda/slots";
 import { bookingWindow } from "@/lib/agenda/time";
@@ -39,7 +40,7 @@ test("free times skip the past, the shift end, and overlaps", () => {
 });
 
 test("saving a slot blocks the overlap and keeps the partial unique index", async () => {
-  resetBookingRateLimit();
+  await resetBookingRateLimit();
   const date = "2026-10-14";
   const times = await listFreeSlots({ serviceSlug: "corte", barberSlug: "rafael", date });
   assert.ok(times.includes("09:00"), `expected 09:00 in ${times.join(",")}`);
@@ -54,8 +55,9 @@ test("saving a slot blocks the overlap and keeps the partial unique index", asyn
     },
     "ip-a",
   );
-  assert.match(first.waUrl, /^https:\/\/wa\.me\/5571994130031\?text=/);
-  assert.match(decodeURIComponent(first.waUrl.split("text=")[1] ?? ""), /Corte com Rafael Lima em quarta-feira, 14\/10 às 09:00/);
+  assert.match(first.waUrl ?? "", /^https:\/\/wa\.me\/5571994130031\?text=/);
+  assert.equal(first.waNotice, null);
+  assert.match(decodeURIComponent((first.waUrl ?? "").split("text=")[1] ?? ""), /Corte com Rafael Lima em quarta-feira, 14\/10 às 09:00/);
   await assert.rejects(
     () =>
       confirmBooking(
@@ -97,7 +99,7 @@ test("saving a slot blocks the overlap and keeps the partial unique index", asyn
 });
 
 test("any barber is assigned on the server and a whole-day block removes that barber", async () => {
-  resetBookingRateLimit();
+  await resetBookingRateLimit();
   const sql = await getSql();
   const barbers = await sql<{ id: string }>`
     select id from barbers where slug = ${"diego"} and shop_id = (
@@ -131,7 +133,7 @@ test("any barber is assigned on the server and a whole-day block removes that ba
 });
 
 test("rate limit is per IP", async () => {
-  resetBookingRateLimit();
+  await resetBookingRateLimit();
   const payload = {
     serviceSlug: "corte",
     barberSlug: "rafael",
@@ -152,7 +154,7 @@ test("rate limit is per IP", async () => {
 });
 
 test("simultaneous confirms cannot double-book the same slot", async () => {
-  resetBookingRateLimit();
+  await resetBookingRateLimit();
   const payload = {
     serviceSlug: "barba",
     barberSlug: "rafael",
@@ -180,3 +182,67 @@ test("simultaneous confirms cannot double-book the same slot", async () => {
   assert.ok(loss && !loss.ok);
   assert.match(loss.message, /ocupado/);
 });
+
+test("a shop with no WhatsApp still saves the booking and does not invent a number", async () => {
+  await resetBookingRateLimit();
+  const sql = await getSql();
+  const teste = await sql<{ id: string; whatsapp: string | null }>`
+    select id, whatsapp from shops where slug = ${"barbearia-teste"}
+  `;
+  assert.equal(teste[0]?.whatsapp ?? null, null);
+  assert.equal(await shopWhatsAppLink(sql, teste[0]?.id ?? "", "oi"), null);
+
+  const before = await sql<{ whatsapp: string | null }>`
+    select whatsapp from shops where slug = ${"barbearia-leme"}
+  `;
+  const previous = before[0]?.whatsapp ?? null;
+  await sql`update shops set whatsapp = null where slug = ${"barbearia-leme"}`;
+  try {
+    const saved = await confirmBooking(
+      {
+        serviceSlug: "corte",
+        barberSlug: "rafael",
+        date: "2026-10-16",
+        time: "16:00",
+        name: "Sem Zap",
+        phone: "(71) 98888-3333",
+      },
+      "ip-no-wa",
+    );
+    assert.equal(saved.waUrl, null);
+    assert.equal(
+      saved.waNotice,
+      "Seu agendamento foi salvo, mas esta barbearia ainda não tem WhatsApp cadastrado.",
+    );
+    const rows = await sql<{ id: string }>`
+      select id from bookings where customer_name = ${"Sem Zap"} and status = 'active'
+    `;
+    assert.equal(rows.length, 1);
+  } finally {
+    await sql`update shops set whatsapp = ${previous} where slug = ${"barbearia-leme"}`;
+  }
+});
+
+test("rate limit windows live in Postgres and do not store the raw IP", async () => {
+  await resetBookingRateLimit();
+  const sql = await getSql();
+  const old = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+  await sql`
+    insert into rate_limits (key, window_start, count)
+    values (${"booking.confirm:old"}, ${old}, 4)
+  `;
+  const burst = await Promise.all(
+    Array.from({ length: 8 }, () => allowBookingAttempt("ip-burst")),
+  );
+  assert.equal(burst.every(Boolean), true);
+  assert.equal(await allowBookingAttempt("ip-burst"), false);
+  const rows = await sql<{ key: string; count: number }>`
+    select key, count from rate_limits
+  `;
+  assert.equal(rows.length, 1);
+  assert.equal(Number(rows[0]?.count), 9);
+  const key = String(rows[0]?.key ?? "");
+  assert.equal(key.includes("ip-burst"), false);
+  assert.match(key, /^booking\.confirm:[a-f0-9]{64}$/);
+});
+

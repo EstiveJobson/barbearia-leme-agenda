@@ -25,7 +25,8 @@ export type CatalogShop = {
   intro: string;
   cityLine: string;
   seoDescription: string;
-  whatsapp: string;
+  /** Digits with DDD, no country code. Null hides WhatsApp for that shop. */
+  whatsapp: string | null;
   instagram: string;
   address: string;
   mapQuery: string;
@@ -46,7 +47,7 @@ export function lemeCatalog(): CatalogShop {
     intro: leme.intro,
     cityLine: leme.cityLine,
     seoDescription: leme.seoDescription,
-    whatsapp: leme.whatsapp,
+    whatsapp: "71994130031",
     instagram: leme.instagram,
     address: leme.address,
     mapQuery: leme.mapQuery,
@@ -82,7 +83,7 @@ export function testShopCatalog(): CatalogShop {
       "Não é uma barbearia real. Existe só para provar que os dados de uma loja não aparecem na outra.",
     cityLine: "Manaus — AM",
     seoDescription: "Loja de teste da demonstração. Não atende clientes.",
-    whatsapp: "92000000000",
+    whatsapp: null,
     instagram: "barbearia-teste-demo",
     address: "Rua das Palmeiras, 10 — Centro, Manaus — AM",
     mapQuery: "Manaus, Amazonas, Brasil",
