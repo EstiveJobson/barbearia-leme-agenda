@@ -52,6 +52,15 @@ function blockInput(input: unknown): {
   };
 }
 
+function pushInput(input: unknown): { endpoint: string; p256dh: string; auth: string } {
+  const record = asRecord(input);
+  return {
+    endpoint: text(record.endpoint),
+    p256dh: text(record.p256dh),
+    auth: text(record.auth),
+  };
+}
+
 async function clientIp(): Promise<string> {
   try {
     const { getRequest } = await import("@tanstack/react-start/server");
@@ -172,6 +181,35 @@ export const removePanelBlock = createServerFn({ method: "POST" })
     if (!result.ok) {
       await setStatus(result.status);
       return { ok: false as const };
+    }
+    return { ok: true as const };
+  });
+
+export const fetchPushSetup = createServerFn({ method: "GET" }).handler(async () => {
+  const owner = await currentOwner();
+  if (!owner) {
+    await setStatus(401);
+    return { ok: false as const };
+  }
+  const { pushAvailable } = await import("@/lib/agenda/notify.server");
+  const publicKey = pushAvailable();
+  if (!publicKey) return { ok: true as const, enabled: false as const };
+  return { ok: true as const, enabled: true as const, publicKey };
+});
+
+export const savePushSubscription = createServerFn({ method: "POST" })
+  .validator(pushInput)
+  .handler(async ({ data }) => {
+    const owner = await currentOwner();
+    if (!owner) {
+      await setStatus(401);
+      return { ok: false as const };
+    }
+    const { savePushSubscription: store } = await import("@/lib/agenda/notify.server");
+    const result = await store(owner, data);
+    if (!result.ok) {
+      await setStatus(result.status);
+      return { ok: false as const, message: result.message };
     }
     return { ok: true as const };
   });

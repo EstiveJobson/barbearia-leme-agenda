@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { PushNotices } from "@/components/painel/push";
 import {
   cancelPanelBooking,
   createPanelBlock,
@@ -145,6 +146,7 @@ export function PanelAgenda() {
         >
           {includeCancelled ? "Ocultar cancelados" : "Mostrar cancelados"}
         </button>
+        <PushNotices />
       </div>
 
       <div className="flex-1 px-5 pt-6 pb-36">

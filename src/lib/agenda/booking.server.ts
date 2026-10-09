@@ -5,6 +5,7 @@ import { parseBrazilianPhone } from "@/lib/agenda/phone";
 import { freeStartTimes, rangesOverlap, unionFreeTimes, type BusyRange, type Shift } from "@/lib/agenda/slots";
 import { ANY_BARBER_SLUG, BookingRejected } from "@/lib/agenda/booking-error";
 import { allowBookingAttempt, RATE_LIMIT_MESSAGE } from "@/lib/agenda/rate-limit";
+import { notifyNewBooking, type BookingNotice } from "@/lib/agenda/notify.server";
 import { NO_SHOP_WHATSAPP, shopWhatsAppLink } from "@/lib/agenda/whatsapp.server";
 const DAY_COUNT = 14;
 
@@ -381,8 +382,9 @@ export async function confirmBooking(input: ConfirmInput, ip: string): Promise<C
     throw new BookingRejected("invalid", "Escolha um dia e um horário.");
   }
 
+  let saved: { result: ConfirmResult; notice: BookingNotice };
   try {
-    return await withTransaction(async (sql) => {
+    saved = await withTransaction(async (sql) => {
       const shop = await publicShop(sql);
       const now = new Date();
       assertInsideHorizon(input.date, shop.timezone, now);
@@ -425,18 +427,31 @@ export async function confirmBooking(input: ConfirmInput, ip: string): Promise<C
           }
           throw err;
         }
+        const priced = priceLabel(Number(service.price_cents));
         const label = dayLabel(input.date);
         const time = clockLabel(input.time);
         const message = waMessage(service.name, barber.name, label, time, name);
         const waUrl = await shopWhatsAppLink(sql, shop.id, message);
         return {
-          serviceName: service.name,
-          barberName: barber.name,
-          dayLabel: label,
-          time,
-          priceLabel: priceLabel(Number(service.price_cents)),
-          waUrl,
-          waNotice: waUrl ? null : NO_SHOP_WHATSAPP,
+          result: {
+            serviceName: service.name,
+            barberName: barber.name,
+            dayLabel: label,
+            time,
+            priceLabel: priced,
+            waUrl,
+            waNotice: waUrl ? null : NO_SHOP_WHATSAPP,
+          },
+          notice: {
+            shopId: shop.id,
+            serviceName: service.name,
+            barberName: barber.name,
+            date: input.date,
+            time,
+            customerName: name,
+            customerPhone: phone.digits,
+            priceLabel: priced,
+          },
         };
       }
       if (!sawBusy) {
@@ -452,4 +467,15 @@ export async function confirmBooking(input: ConfirmInput, ip: string): Promise<C
     console.error("[booking] confirm failed:", err);
     throw new BookingRejected("unavailable", "Não foi possível concluir o agendamento. Tente de novo.");
   }
+
+  try {
+    await notifyNewBooking(saved.notice);
+  } catch (err) {
+    const text = err instanceof Error ? err.message : "unknown";
+    console.error(
+      "[notify] new booking notice failed:",
+      text.replace(/re_[A-Za-z0-9_-]+/g, "[redacted]").slice(0, 300),
+    );
+  }
+  return saved.result;
 }
