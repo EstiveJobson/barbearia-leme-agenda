@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as PainelRouteRouteImport } from './routes/painel/route'
 import { Route as PainelIndexRouteImport } from './routes/painel/index'
 import { Route as PainelEntrarRouteImport } from './routes/painel/entrar'
+import { Route as ApiDemoResetRouteImport } from './routes/api/demo/reset'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -34,17 +35,24 @@ const PainelEntrarRoute = PainelEntrarRouteImport.update({
   path: '/entrar',
   getParentRoute: () => PainelRouteRoute,
 } as any)
+const ApiDemoResetRoute = ApiDemoResetRouteImport.update({
+  id: '/api/demo/reset',
+  path: '/api/demo/reset',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/painel': typeof PainelRouteRouteWithChildren
   '/painel/entrar': typeof PainelEntrarRoute
   '/painel/': typeof PainelIndexRoute
+  '/api/demo/reset': typeof ApiDemoResetRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/painel/entrar': typeof PainelEntrarRoute
   '/painel': typeof PainelIndexRoute
+  '/api/demo/reset': typeof ApiDemoResetRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -52,18 +60,26 @@ export interface FileRoutesById {
   '/painel': typeof PainelRouteRouteWithChildren
   '/painel/entrar': typeof PainelEntrarRoute
   '/painel/': typeof PainelIndexRoute
+  '/api/demo/reset': typeof ApiDemoResetRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/painel' | '/painel/entrar' | '/painel/'
+  fullPaths: '/' | '/painel' | '/painel/entrar' | '/painel/' | '/api/demo/reset'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/painel/entrar' | '/painel'
-  id: '__root__' | '/' | '/painel' | '/painel/entrar' | '/painel/'
+  to: '/' | '/painel/entrar' | '/painel' | '/api/demo/reset'
+  id:
+    | '__root__'
+    | '/'
+    | '/painel'
+    | '/painel/entrar'
+    | '/painel/'
+    | '/api/demo/reset'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   PainelRouteRoute: typeof PainelRouteRouteWithChildren
+  ApiDemoResetRoute: typeof ApiDemoResetRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -96,6 +112,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PainelEntrarRouteImport
       parentRoute: typeof PainelRouteRoute
     }
+    '/api/demo/reset': {
+      id: '/api/demo/reset'
+      path: '/api/demo/reset'
+      fullPath: '/api/demo/reset'
+      preLoaderRoute: typeof ApiDemoResetRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -116,6 +139,7 @@ const PainelRouteRouteWithChildren = PainelRouteRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   PainelRouteRoute: PainelRouteRouteWithChildren,
+  ApiDemoResetRoute: ApiDemoResetRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

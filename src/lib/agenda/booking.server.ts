@@ -6,6 +6,7 @@ import { freeStartTimes, rangesOverlap, unionFreeTimes, type BusyRange, type Shi
 import { ANY_BARBER_SLUG, BookingRejected } from "@/lib/agenda/booking-error";
 import { allowBookingAttempt, RATE_LIMIT_MESSAGE } from "@/lib/agenda/rate-limit";
 import { notifyNewBooking, type BookingNotice } from "@/lib/agenda/notify.server";
+import { maybeSeedDemoAgenda } from "@/lib/demo/demo.server";
 import { NO_SHOP_WHATSAPP, shopWhatsAppLink } from "@/lib/agenda/whatsapp.server";
 const DAY_COUNT = 14;
 
@@ -248,6 +249,7 @@ function assertInsideHorizon(date: string, timeZone: string, now: Date): void {
 }
 
 export async function listBookingDays(input: { barberSlug: string }): Promise<DayOption[]> {
+  await maybeSeedDemoAgenda();
   const sql = await getSql();
   const shop = await publicShop(sql);
   const barbers = await barbersForRequest(sql, shop.id, input.barberSlug);
@@ -276,6 +278,7 @@ export async function listFreeSlots(input: {
   barberSlug: string;
   date: string;
 }): Promise<string[]> {
+  await maybeSeedDemoAgenda();
   const sql = await getSql();
   const shop = await publicShop(sql);
   const now = new Date();

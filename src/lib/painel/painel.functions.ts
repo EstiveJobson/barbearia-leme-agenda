@@ -73,9 +73,22 @@ async function clientIp(): Promise<string> {
 }
 
 async function currentOwner() {
-  const { ownerFromToken } = await import("@/lib/painel/auth.server");
-  const { getCookie } = await import("@tanstack/react-start/server");
-  return ownerFromToken(getCookie(OWNER_COOKIE));
+  try {
+    const { ownerFromToken } = await import("@/lib/painel/auth.server");
+    const { getCookie } = await import("@tanstack/react-start/server");
+    return ownerFromToken(getCookie(OWNER_COOKIE));
+  } catch {
+    return null;
+  }
+}
+
+async function ownerToken(): Promise<string | undefined> {
+  try {
+    const { getCookie } = await import("@tanstack/react-start/server");
+    return getCookie(OWNER_COOKIE);
+  } catch {
+    return undefined;
+  }
 }
 
 async function setStatus(code: number) {
@@ -108,6 +121,27 @@ export const submitPanelLogin = createServerFn({ method: "POST" })
     return { ok: true as const };
   });
 
+export const submitDemoLogin = createServerFn({ method: "POST" }).handler(async () => {
+  const { loginDemoOwner } = await import("@/lib/painel/auth.server");
+  const result = await loginDemoOwner(await clientIp());
+  if (!result.ok) {
+    if (result.code === "rate_limited") {
+      const { RATE_LIMIT_MESSAGE } = await import("@/lib/agenda/rate-limit");
+      await setStatus(429);
+      return { ok: false as const, message: RATE_LIMIT_MESSAGE };
+    }
+    if (result.code === "unavailable") {
+      await setStatus(503);
+      return { ok: false as const };
+    }
+    await setStatus(404);
+    return { ok: false as const };
+  }
+  const { setCookie } = await import("@tanstack/react-start/server");
+  setCookie(OWNER_COOKIE, result.token, OWNER_COOKIE_OPTIONS);
+  return { ok: true as const };
+});
+
 export const submitPanelLogout = createServerFn({ method: "POST" }).handler(async () => {
   const { deleteCookie } = await import("@tanstack/react-start/server");
   deleteCookie(OWNER_COOKIE, OWNER_COOKIE_CLEAR);
@@ -117,13 +151,8 @@ export const submitPanelLogout = createServerFn({ method: "POST" }).handler(asyn
 export const fetchAgenda = createServerFn({ method: "POST" })
   .validator(agendaInput)
   .handler(async ({ data }) => {
-    const owner = await currentOwner();
-    if (!owner) {
-      await setStatus(401);
-      return { ok: false as const };
-    }
-    const { loadAgenda } = await import("@/lib/painel/agenda.server");
-    const result = await loadAgenda(owner, data);
+    const { agendaForToken } = await import("@/lib/painel/panel-api.server");
+    const result = await agendaForToken(await ownerToken(), data);
     if (!result.ok) {
       await setStatus(result.status);
       return { ok: false as const };
@@ -134,13 +163,8 @@ export const fetchAgenda = createServerFn({ method: "POST" })
 export const cancelPanelBooking = createServerFn({ method: "POST" })
   .validator(idInput)
   .handler(async ({ data }) => {
-    const owner = await currentOwner();
-    if (!owner) {
-      await setStatus(401);
-      return { ok: false as const };
-    }
-    const { cancelBooking } = await import("@/lib/painel/agenda.server");
-    const result = await cancelBooking(owner, data.id);
+    const { cancelForToken } = await import("@/lib/painel/panel-api.server");
+    const result = await cancelForToken(await ownerToken(), data.id);
     if (!result.ok) {
       await setStatus(result.status);
       return { ok: false as const };
@@ -151,13 +175,8 @@ export const cancelPanelBooking = createServerFn({ method: "POST" })
 export const createPanelBlock = createServerFn({ method: "POST" })
   .validator(blockInput)
   .handler(async ({ data }) => {
-    const owner = await currentOwner();
-    if (!owner) {
-      await setStatus(401);
-      return { ok: false as const };
-    }
-    const { createBlock } = await import("@/lib/painel/agenda.server");
-    const result = await createBlock(owner, data);
+    const { blockForToken } = await import("@/lib/painel/panel-api.server");
+    const result = await blockForToken(await ownerToken(), data);
     if (!result.ok) {
       await setStatus(result.status);
       if (result.status === 400) {
@@ -171,13 +190,8 @@ export const createPanelBlock = createServerFn({ method: "POST" })
 export const removePanelBlock = createServerFn({ method: "POST" })
   .validator(idInput)
   .handler(async ({ data }) => {
-    const owner = await currentOwner();
-    if (!owner) {
-      await setStatus(401);
-      return { ok: false as const };
-    }
-    const { removeBlock } = await import("@/lib/painel/agenda.server");
-    const result = await removeBlock(owner, data.id);
+    const { removeBlockForToken } = await import("@/lib/painel/panel-api.server");
+    const result = await removeBlockForToken(await ownerToken(), data.id);
     if (!result.ok) {
       await setStatus(result.status);
       return { ok: false as const };
@@ -186,30 +200,25 @@ export const removePanelBlock = createServerFn({ method: "POST" })
   });
 
 export const fetchPushSetup = createServerFn({ method: "GET" }).handler(async () => {
-  const owner = await currentOwner();
-  if (!owner) {
-    await setStatus(401);
+  const { pushSetupForToken } = await import("@/lib/painel/panel-api.server");
+  const result = await pushSetupForToken(await ownerToken());
+  if (!result.ok) {
+    await setStatus(result.status);
     return { ok: false as const };
   }
-  const { pushAvailable } = await import("@/lib/agenda/notify.server");
-  const publicKey = pushAvailable();
-  if (!publicKey) return { ok: true as const, enabled: false as const };
-  return { ok: true as const, enabled: true as const, publicKey };
+  if (!result.enabled) return { ok: true as const, enabled: false as const };
+  return { ok: true as const, enabled: true as const, publicKey: result.publicKey };
 });
 
 export const savePushSubscription = createServerFn({ method: "POST" })
   .validator(pushInput)
   .handler(async ({ data }) => {
-    const owner = await currentOwner();
-    if (!owner) {
-      await setStatus(401);
-      return { ok: false as const };
-    }
-    const { savePushSubscription: store } = await import("@/lib/agenda/notify.server");
-    const result = await store(owner, data);
+    const { savePushForToken } = await import("@/lib/painel/panel-api.server");
+    const result = await savePushForToken(await ownerToken(), data);
     if (!result.ok) {
       await setStatus(result.status);
-      return { ok: false as const, message: result.message };
+      if (result.status === 400) return { ok: false as const, message: result.message };
+      return { ok: false as const };
     }
     return { ok: true as const };
   });

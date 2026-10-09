@@ -91,6 +91,21 @@ After a booking is committed, the server emails `NOTIFY_EMAIL_TO` through Resend
 
 When both VAPID keys are set, the panel shows **Ativar avisos**. That stores the browser subscription in `push_subscriptions` for the session shop, and each new booking pushes `Novo agendamento: [serviço], [dd/mm] [hh:mm], [nome]` to that shop. Subscriptions that the push service reports as expired (HTTP 404 or 410) are deleted. If either VAPID key is missing, the button stays hidden.
 
+## Demo mode
+
+Demo mode stays off unless `DEMO_MODE` is exactly `true`. The server checks that value. It is not a query parameter.
+
+When it is on:
+
+- `/painel/entrar` shows **Entrar como dono (demo)**. That signs in with no password, and only as the Barbearia Leme owner (`slug` `barbearia-leme`). It never opens another shop. The same endpoint returns 404 when demo mode is off.
+- The public site and the panel show a small fixed **Demonstração** banner.
+- If Leme has no bookings yet, the first public slot list or panel agenda fills a sample relative to today in `America/Bahia`: bookings from 3 days ago through 7 days ahead, across Leme's barbers and services, about 40 to 60% of the grid taken, a few cancelled rows, and one or two blocks. Names and phones are invented (`Visitante Demo`, numbers such as `(71) 90000-0001`).
+- `GET /api/demo/reset` deletes bookings and blocks for `barbearia-leme` and `barbearia-teste`, then reloads Leme's sample for the current day. Services, barbers, hours, and owner accounts are left as they are. The route returns 404 when demo mode is off. When it is on, the request must send `Authorization: Bearer <CRON_SECRET>`. Anything else is 401.
+
+Sample rows are inserted directly. They do not send the new-booking email or push.
+
+`vercel.json` schedules that route every night at 03:00 in Bahia (`0 6 * * *`, 06:00 UTC). Set `CRON_SECRET` on the host so Vercel Cron can send the bearer token.
+
 ## Scripts
 
 | Script | What it does |
@@ -102,7 +117,21 @@ When both VAPID keys are set, the panel shows **Ativar avisos**. That stores the
 | `npm run typecheck` | TypeScript |
 | `npm run preview` | Serve the production build locally |
 
-Deployment is handled separately. This repository does not create a Vercel project.
+## Deployment
+
+This repository does not create a Vercel project. Configure these environment variables on the host you choose:
+
+- `DATABASE_URL`: the Neon Postgres connection string. Required in production. Without it, production refuses to start.
+- `ADMIN_PASSWORD`: the owner's password (or its hash). `db:seed` stores a bcrypt hash in `owner_accounts`. Server-only.
+- `SESSION_SECRET`: a long random string that signs the owner session cookie. Server-only.
+- `RESEND_API_KEY` and `EMAIL_FROM`: for the booking notification email. If either is missing, the email is skipped.
+- `NOTIFY_EMAIL_TO`: the inbox that receives new-booking notifications, including on the public demo.
+- `CRON_SECRET`: protects `GET /api/demo/reset`. Server-only.
+- `DEMO_MODE=true`: turns demo mode on. Any other value leaves it off.
+- `PUBLIC_SITE_URL`: the public URL of the site, with no trailing slash. Used for `og:image`, `og:url`, and the panel link in the booking email.
+- `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY`: only if push was implemented. Both are required before the panel shows **Ativar avisos**. The private key stays on the server.
+
+Copy `.env.example` for the names. Do not commit real values. The only env file in the repo is `.env.example`.
 
 ## Layout
 
@@ -117,6 +146,7 @@ src/shop-config.ts             public site content (also the Leme seed source)
 src/components/barbearia/      page and the current booking UI
 src/lib/schedule.ts            slot labels in the shop timezone
 src/lib/agenda/                UTC slot math and shop-scoped queries
+src/lib/demo/                 sample agenda and the daily reset
 src/lib/db.ts                  Neon, or PGLite when developing locally
 src/routes/__root.tsx          document shell and Open Graph tags
 public/                        icons and og.jpg
