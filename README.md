@@ -68,13 +68,13 @@ See `.env.example`. All of them are empty there on purpose.
 | `DATABASE_URL` | Neon connection string. Required in production. |
 | `ADMIN_PASSWORD` | Hashed into `owner_accounts` by `db:seed`. Server-only. |
 | `SESSION_SECRET` | Owner session signing secret. Server-only. |
-| `RESEND_API_KEY` | Transactional email. Server-only. |
-| `EMAIL_FROM` | From address for notification email. |
-| `NOTIFY_EMAIL_TO` | Inbox for new-booking notifications. |
+| `RESEND_API_KEY` | Resend API key. Server-only. Required to email new bookings. |
+| `EMAIL_FROM` | From address for that email. |
+| `NOTIFY_EMAIL_TO` | Inbox that receives new-booking emails. |
 | `CRON_SECRET` | Shared secret for scheduled jobs. Server-only. |
 | `DEMO_MODE` | Set to `true` on the public demo deployment. |
-| `PUBLIC_SITE_URL` | Absolute origin (no trailing slash) used for `og:image` and `og:url`. |
-| `VAPID_PUBLIC_KEY` | Web Push public key. |
+| `PUBLIC_SITE_URL` | Absolute origin (no trailing slash) used for `og:image`, `og:url`, and the panel link in the booking email. |
+| `VAPID_PUBLIC_KEY` | Web Push public key. Safe to expose. Both VAPID keys are required for push. |
 | `VAPID_PRIVATE_KEY` | Web Push private key. Server-only. |
 
 Server-only variables are read in server modules and seed/migrate scripts. They are not imported by browser code.
@@ -84,6 +84,12 @@ Server-only variables are read in server modules and seed/migrate scripts. They 
 `/painel` is the shop agenda. `/painel/entrar` asks for the owner password, checked with bcrypt against `owner_accounts.password_hash`. A correct password sets an httpOnly cookie signed with `SESSION_SECRET` (30 days). The cookie stores only the owner account id. Every panel query loads `shop_id` from that row and ignores any shop id sent by the browser.
 
 Set `ADMIN_PASSWORD` before the first local seed so an owner row exists, and set `SESSION_SECRET` before opening the panel. "Sair" clears the cookie. Login attempts are rate-limited per IP in `rate_limits`.
+
+## Notifications
+
+After a booking is committed, the server emails `NOTIFY_EMAIL_TO` through Resend. The message is in Portuguese. The subject is `Novo agendamento: [serviço] em [dd/mm] às [hh:mm]`, and the body includes the customer, service, barber, day, time, price, and a link to `PUBLIC_SITE_URL/painel`. If `RESEND_API_KEY`, `EMAIL_FROM`, or `NOTIFY_EMAIL_TO` is missing, the email is skipped. A failed send is logged without the API key. The booking stays saved and the customer still sees success.
+
+When both VAPID keys are set, the panel shows **Ativar avisos**. That stores the browser subscription in `push_subscriptions` for the session shop, and each new booking pushes `Novo agendamento: [serviço], [dd/mm] [hh:mm], [nome]` to that shop. Subscriptions that the push service reports as expired (HTTP 404 or 410) are deleted. If either VAPID key is missing, the button stays hidden.
 
 ## Scripts
 
@@ -104,6 +110,7 @@ Deployment is handled separately. This repository does not create a Vercel proje
 migrations/0001_agenda.sql     shops, barbers, services, weekly_schedule, blocks, bookings, owner_accounts
 migrations/0002_rate_limits.sql confirm and login rate-limit windows
 migrations/0003_block_reason.sql optional reason on a block
+migrations/0004_push_subscriptions.sql owner Web Push subscriptions
 scripts/migrate.mjs            Neon migrator
 scripts/seed.mjs               Neon seed
 src/shop-config.ts             public site content (also the Leme seed source)
