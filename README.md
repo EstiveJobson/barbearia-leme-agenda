@@ -79,6 +79,12 @@ See `.env.example`. All of them are empty there on purpose.
 
 Server-only variables are read in server modules and seed/migrate scripts. They are not imported by browser code.
 
+## Owner panel
+
+`/painel` is the shop agenda. `/painel/entrar` asks for the owner password, checked with bcrypt against `owner_accounts.password_hash`. A correct password sets an httpOnly cookie signed with `SESSION_SECRET` (30 days). The cookie stores only the owner account id. Every panel query loads `shop_id` from that row and ignores any shop id sent by the browser.
+
+Set `ADMIN_PASSWORD` before the first local seed so an owner row exists, and set `SESSION_SECRET` before opening the panel. "Sair" clears the cookie. Login attempts are rate-limited per IP in `rate_limits`.
+
 ## Scripts
 
 | Script | What it does |
@@ -96,7 +102,8 @@ Deployment is handled separately. This repository does not create a Vercel proje
 
 ```
 migrations/0001_agenda.sql     shops, barbers, services, weekly_schedule, blocks, bookings, owner_accounts
-migrations/0002_rate_limits.sql confirm rate-limit windows
+migrations/0002_rate_limits.sql confirm and login rate-limit windows
+migrations/0003_block_reason.sql optional reason on a block
 scripts/migrate.mjs            Neon migrator
 scripts/seed.mjs               Neon seed
 src/shop-config.ts             public site content (also the Leme seed source)
