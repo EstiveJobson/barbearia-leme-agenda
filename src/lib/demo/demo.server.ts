@@ -63,6 +63,10 @@ function addDays(iso: string, days: number): string {
 
 async function writeDemoAgenda(sql: Sql, now: Date): Promise<{ bookings: number; blocks: number }> {
   await sql`
+    delete from push_subscriptions
+    where shop_id in (select id from shops where slug in (${DEMO_SHOPS[0]}, ${DEMO_SHOPS[1]}))
+  `;
+  await sql`
     delete from bookings
     where shop_id in (select id from shops where slug in (${DEMO_SHOPS[0]}, ${DEMO_SHOPS[1]}))
   `;

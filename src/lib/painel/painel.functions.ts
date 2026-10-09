@@ -204,6 +204,7 @@ export const fetchPushSetup = createServerFn({ method: "GET" }).handler(async ()
   const result = await pushSetupForToken(await ownerToken());
   if (!result.ok) {
     await setStatus(result.status);
+    if (result.status === 403) return { error: result.error };
     return { ok: false as const };
   }
   if (!result.enabled) return { ok: true as const, enabled: false as const };
@@ -217,6 +218,7 @@ export const savePushSubscription = createServerFn({ method: "POST" })
     const result = await savePushForToken(await ownerToken(), data);
     if (!result.ok) {
       await setStatus(result.status);
+      if (result.status === 403) return { error: result.error };
       if (result.status === 400) return { ok: false as const, message: result.message };
       return { ok: false as const };
     }

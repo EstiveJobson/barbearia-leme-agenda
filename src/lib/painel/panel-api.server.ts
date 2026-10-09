@@ -1,5 +1,7 @@
 import type { AgendaInput, BlockInput } from "@/lib/painel/agenda.server";
 import { ownerFromToken, type OwnerContext } from "@/lib/painel/auth.server";
+import { isDemoMode } from "@/lib/demo/demo.server";
+import { DEMO_PUSH_DISABLED } from "@/lib/painel/gate";
 
 export type PanelDenied = { ok: false; status: 401 | 404 | 400; message?: string };
 
@@ -12,6 +14,10 @@ export async function requireOwner(token: string | undefined): Promise<OwnerCont
 
 function denied(value: OwnerContext | PanelDenied): value is PanelDenied {
   return "status" in value;
+}
+
+function demoPushOff(): { ok: false; status: 403; error: string } {
+  return { ok: false, status: 403, error: DEMO_PUSH_DISABLED };
 }
 
 export async function agendaForToken(token: string | undefined, input: AgendaInput) {
@@ -51,6 +57,7 @@ export async function removeBlockForToken(token: string | undefined, id: string)
 }
 
 export async function pushSetupForToken(token: string | undefined) {
+  if (isDemoMode()) return demoPushOff();
   const owner = await requireOwner(token);
   if (denied(owner)) return owner;
   const { pushAvailable } = await import("@/lib/agenda/notify.server");
@@ -63,10 +70,14 @@ export async function savePushForToken(
   token: string | undefined,
   input: { endpoint: string; p256dh: string; auth: string },
 ) {
+  if (isDemoMode()) return demoPushOff();
   const owner = await requireOwner(token);
   if (denied(owner)) return owner;
   const { savePushSubscription } = await import("@/lib/agenda/notify.server");
   const result = await savePushSubscription(owner, input);
-  if (!result.ok) return { ok: false as const, status: result.status, message: result.message };
+  if (!result.ok) {
+    if (result.status === 403) return { ok: false as const, status: 403 as const, error: result.error };
+    return { ok: false as const, status: result.status, message: result.message };
+  }
   return { ok: true as const };
 }

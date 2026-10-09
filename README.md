@@ -89,7 +89,7 @@ Set `ADMIN_PASSWORD` before the first local seed so an owner row exists, and set
 
 After a booking is committed, the server emails `NOTIFY_EMAIL_TO` through Resend. The message is in Portuguese. The subject is `Novo agendamento: [serviço] em [dd/mm] às [hh:mm]`, and the body includes the customer, service, barber, day, time, price, and a link to `PUBLIC_SITE_URL/painel`. If `RESEND_API_KEY`, `EMAIL_FROM`, or `NOTIFY_EMAIL_TO` is missing, the email is skipped. A failed send is logged without the API key. The booking stays saved and the customer still sees success.
 
-When both VAPID keys are set, the panel shows **Ativar avisos**. That stores the browser subscription in `push_subscriptions` for the session shop, and each new booking pushes `Novo agendamento: [serviço], [dd/mm] [hh:mm], [nome]` to that shop. Subscriptions that the push service reports as expired (HTTP 404 or 410) are deleted. If either VAPID key is missing, the button stays hidden.
+When both VAPID keys are set, and demo mode is off, the panel shows **Ativar avisos**. That stores the browser subscription in `push_subscriptions` for the session shop, and each new booking pushes `Novo agendamento: [serviço], [dd/mm] [hh:mm], [nome]` to that shop. Subscriptions that the push service reports as expired (HTTP 404 or 410) are deleted. If either VAPID key is missing, the button stays hidden. In demo mode push is disabled: the button is replaced by a notice, the push endpoints refuse the request, and no push is sent.
 
 ## Demo mode
 
@@ -100,7 +100,8 @@ When it is on:
 - `/painel/entrar` shows **Entrar como dono (demo)**. That signs in with no password, and only as the Barbearia Leme owner (`slug` `barbearia-leme`). It never opens another shop. The same endpoint returns 404 when demo mode is off.
 - The public site and the panel show a small fixed **Demonstração** banner.
 - If Leme has no bookings yet, the first public slot list or panel agenda fills a sample relative to today in `America/Bahia`: bookings from 3 days ago through 7 days ahead, across Leme's barbers and services, about 40 to 60% of the grid taken, a few cancelled rows, and one or two blocks. Names and phones are invented (`Visitante Demo`, numbers such as `(71) 90000-0001`).
-- `GET /api/demo/reset` deletes bookings and blocks for `barbearia-leme` and `barbearia-teste`, then reloads Leme's sample for the current day. Services, barbers, hours, and owner accounts are left as they are. The route returns 404 when demo mode is off. When it is on, the request must send `Authorization: Bearer <CRON_SECRET>`. Anything else is 401.
+- Push stays off. The panel hides **Ativar avisos** and shows **Avisos desativados na demonstração.** The endpoints that return the VAPID public key and that save a subscription respond `403` with `{ "error": "Avisos desativados na demonstração." }` and store nothing. Email still goes out. Push is not sent, including to subscriptions already in the database.
+- `GET /api/demo/reset` deletes bookings, blocks, and push subscriptions for `barbearia-leme` and `barbearia-teste`, then reloads Leme's sample for the current day. Services, barbers, hours, and owner accounts are left as they are. The route returns 404 when demo mode is off. When it is on, the request must send `Authorization: Bearer <CRON_SECRET>`. Anything else is 401.
 
 Sample rows are inserted directly. They do not send the new-booking email or push.
 

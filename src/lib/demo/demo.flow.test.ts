@@ -6,8 +6,9 @@ import { getSql } from "@/lib/db";
 import { resetBookingRateLimit } from "@/lib/agenda/rate-limit";
 import { activeFillRatio, buildDemoSample, type DemoInput } from "@/lib/demo/sample";
 import { handleDemoReset, isDemoMode, maybeSeedDemoAgenda } from "@/lib/demo/demo.server";
+import { notifyNewBooking, savePushSubscription } from "@/lib/agenda/notify.server";
 import { loadOwner, loginDemoOwner, loginWithPassword } from "@/lib/painel/auth.server";
-import { panelLoginRedirect } from "@/lib/painel/gate";
+import { DEMO_PUSH_DISABLED, panelLoginRedirect } from "@/lib/painel/gate";
 import {
   agendaForToken,
   blockForToken,
@@ -219,6 +220,13 @@ test("demo reset, demo login, and shop isolation", async () => {
       const hidden = await handleDemoReset(request(`Bearer ${CRON}`));
       assert.equal(hidden.status, 404);
       assert.equal(await hidden.text(), "");
+      const pushClosed = await pushSetupForToken(undefined);
+      assert.equal(pushClosed.ok, false);
+      if (!pushClosed.ok) {
+        assert.equal(pushClosed.status, 401);
+        assert.equal("error" in pushClosed, false);
+        assert.equal("publicKey" in pushClosed, false);
+      }
     }
 
     const still = await loginWithPassword(PASSWORD, "ip-demo-off");
@@ -268,6 +276,20 @@ test("demo reset, demo login, and shop isolation", async () => {
       )
     `;
     const before = await catalogSnapshot();
+    await sql`
+      insert into push_subscriptions (shop_id, owner_account_id, endpoint, p256dh, auth)
+      select o.shop_id, o.id, ${"https://push.example.test/leme"}, ${"aaaaaaaaaaaaaaaa"}, ${"bbbbbbbbbbbbbbbb"}
+      from owner_accounts o
+      join shops s on s.id = o.shop_id
+      where s.slug = ${"barbearia-leme"}
+    `;
+    await sql`
+      insert into push_subscriptions (shop_id, owner_account_id, endpoint, p256dh, auth)
+      select o.shop_id, o.id, ${"https://push.example.test/teste"}, ${"aaaaaaaaaaaaaaaa"}, ${"bbbbbbbbbbbbbbbb"}
+      from owner_accounts o
+      join shops s on s.id = o.shop_id
+      where s.slug = ${"barbearia-teste"}
+    `;
 
     const reset = await handleDemoReset(request(`Bearer ${CRON}`));
     assert.equal(reset.status, 200);
@@ -281,6 +303,8 @@ test("demo reset, demo login, and shop isolation", async () => {
     assert.equal(await countFor("barbearia-teste", "blocks"), 0);
     const wiped = await sql<{ id: string }>`select id from bookings where customer_name = ${"Cliente Resetado"}`;
     assert.equal(wiped.length, 0);
+    const subsLeft = await sql<{ n: number }>`select count(*)::int as n from push_subscriptions`;
+    assert.equal(Number(subsLeft[0]?.n ?? 0), 0);
     assert.deepEqual(await catalogSnapshot(), before);
 
     const inserted = await sql<{ id: string }>`
@@ -405,8 +429,6 @@ test("demo reset, demo login, and shop isolation", async () => {
         reason: "",
       }),
       await removeBlockForToken(undefined, secretBlock),
-      await pushSetupForToken(undefined),
-      await savePushForToken(undefined, { endpoint: "https://push.example/1", p256dh: "k", auth: "a" }),
     ];
     for (const result of unsigned) {
       assert.equal(result.ok, false);
@@ -416,6 +438,90 @@ test("demo reset, demo login, and shop isolation", async () => {
         assert.equal("message" in result, false);
       }
     }
+
+    process.env.VAPID_PUBLIC_KEY = "public-key-for-test";
+    process.env.VAPID_PRIVATE_KEY = "private-key-for-test";
+    const setup = await pushSetupForToken(demoLogin.token);
+    assert.equal(setup.ok, false);
+    if (!setup.ok) {
+      assert.equal(setup.status, 403);
+      assert.equal("error" in setup ? setup.error : "", DEMO_PUSH_DISABLED);
+      assert.equal("publicKey" in setup, false);
+    }
+    const unsignedPush = await pushSetupForToken(undefined);
+    assert.equal(unsignedPush.ok, false);
+    if (!unsignedPush.ok) assert.equal(unsignedPush.status, 403);
+    const savedPush = await savePushForToken(demoLogin.token, {
+      endpoint: "https://push.example.test/demo",
+      p256dh: "cccccccccccccccc",
+      auth: "dddddddddddddddd",
+    });
+    assert.equal(savedPush.ok, false);
+    if (!savedPush.ok) {
+      assert.equal(savedPush.status, 403);
+      assert.equal("error" in savedPush ? savedPush.error : "", DEMO_PUSH_DISABLED);
+    }
+    const direct = await savePushSubscription(
+      { ownerId: owner?.ownerId ?? "", shopId: owner?.shopId ?? "" },
+      { endpoint: "https://push.example.test/direct", p256dh: "cccccccccccccccc", auth: "dddddddddddddddd" },
+    );
+    assert.equal(direct.ok, false);
+    const storedPush = await sql<{ n: number }>`select count(*)::int as n from push_subscriptions`;
+    assert.equal(Number(storedPush[0]?.n ?? 0), 0);
+
+    await sql`
+      insert into push_subscriptions (shop_id, owner_account_id, endpoint, p256dh, auth)
+      values (
+        ${owner?.shopId ?? ""},
+        ${owner?.ownerId ?? ""},
+        ${"https://push.example.test/already"},
+        ${"eeeeeeeeeeeeeeee"},
+        ${"ffffffffffffffff"}
+      )
+    `;
+    let pushed = false;
+    const sent: string[] = [];
+    const originalFetch = globalThis.fetch;
+    process.env.RESEND_API_KEY = "re_test_key_not_real";
+    process.env.EMAIL_FROM = "agenda@example.com";
+    process.env.NOTIFY_EMAIL_TO = "dono@example.com";
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      sent.push(String(input));
+      return new Response("{}", { status: 200, headers: init?.headers });
+    };
+    try {
+      await notifyNewBooking(
+        {
+          shopId: owner?.shopId ?? "",
+          serviceName: "Corte",
+          barberName: "Rafael Lima",
+          date: "2026-10-10",
+          time: "15:00",
+          customerName: "Visitante Demo",
+          customerPhone: "71900000001",
+          priceLabel: "R$ 45",
+        },
+        {
+          pushSender: async () => {
+            pushed = true;
+            return "ok";
+          },
+        },
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+      delete process.env.RESEND_API_KEY;
+      delete process.env.EMAIL_FROM;
+      delete process.env.NOTIFY_EMAIL_TO;
+      delete process.env.VAPID_PUBLIC_KEY;
+      delete process.env.VAPID_PRIVATE_KEY;
+    }
+    assert.equal(pushed, false);
+    assert.equal(sent.some((url) => url.includes("api.resend.com")), true);
+    const stillSubscribed = await sql<{ endpoint: string }>`
+      select endpoint from push_subscriptions where endpoint = ${"https://push.example.test/already"}
+    `;
+    assert.equal(stillSubscribed[0]?.endpoint, "https://push.example.test/already");
 
     const forged = sealOwnerSession("00000000-0000-4000-8000-000000000000", SECRET);
     const rejected = await agendaForToken(forged ?? undefined, {

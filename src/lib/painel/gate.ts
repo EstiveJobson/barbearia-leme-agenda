@@ -7,3 +7,6 @@ export function panelLoginRedirect(hasSession: boolean, pathname: string): "/pai
   if (hasSession && onLogin) return "/painel";
   return null;
 }
+
+/** Panel copy and the JSON body of the push endpoints while demo mode is on. */
+export const DEMO_PUSH_DISABLED = "Avisos desativados na demonstração.";
