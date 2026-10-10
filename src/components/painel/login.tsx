@@ -1,7 +1,9 @@
 import { useState, type FormEvent } from "react";
-import { submitPanelLogin } from "@/lib/painel/painel.functions";
+import { useDemoMode } from "@/components/demo-banner";
+import { submitDemoLogin, submitPanelLogin } from "@/lib/painel/painel.functions";
 
 export function PanelLogin() {
+  const demo = useDemoMode();
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -21,6 +23,24 @@ export function PanelLogin() {
       window.location.assign("/painel");
     } catch {
       setError("Não foi possível entrar. Confira a senha.");
+      setPending(false);
+    }
+  }
+
+  async function onDemo() {
+    if (pending) return;
+    setPending(true);
+    setError(null);
+    try {
+      const result = await submitDemoLogin();
+      if (!result.ok) {
+        setError("message" in result && result.message ? result.message : "A demonstração não está disponível.");
+        setPending(false);
+        return;
+      }
+      window.location.assign("/painel");
+    } catch {
+      setError("A demonstração não está disponível.");
       setPending(false);
     }
   }
@@ -51,6 +71,16 @@ export function PanelLogin() {
         >
           {pending ? "Entrando…" : "Entrar"}
         </button>
+        {demo && (
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => void onDemo()}
+            className="min-h-12 w-full border border-gold px-5 font-display text-lg tracking-wide text-gold disabled:opacity-70"
+          >
+            Entrar como dono (demo)
+          </button>
+        )}
       </form>
     </main>
   );

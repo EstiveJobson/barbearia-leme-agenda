@@ -1,6 +1,6 @@
 import bcrypt from "bcryptjs";
 import { getSql } from "@/lib/db";
-import { allowLoginAttempt } from "@/lib/agenda/rate-limit";
+import { allowAttempt, allowLoginAttempt } from "@/lib/agenda/rate-limit";
 import { PUBLIC_SHOP_SLUG } from "@/lib/agenda/shop.server";
 import { openOwnerSession, sealOwnerSession } from "@/lib/painel/session";
 
@@ -13,6 +13,11 @@ export type OwnerContext = {
 
 /** Cost-12 hash of a string that is not a real password. Used when no account matches. */
 const DUMMY_PASSWORD_HASH = "$2b$12$Lb1qqF4cnBtCJUGFwi7t7u1DVFbZHjJhNCC75pesNm7pF/L90EP2e";
+
+function readEnv(name: string): string {
+  const value = process.env[name];
+  return typeof value === "string" ? value.trim() : "";
+}
 
 async function passwordMatches(password: string, hash: string): Promise<boolean> {
   try {
@@ -56,12 +61,49 @@ export async function loginWithPassword(
   }
   if (!matched) return { ok: false, code: "invalid" };
 
-  const secret = process.env.SESSION_SECRET?.trim() ?? "";
+  const secret = readEnv("SESSION_SECRET");
   if (!secret) {
     console.error("[painel] SESSION_SECRET is not set");
     return { ok: false, code: "unavailable" };
   }
   const token = sealOwnerSession(matched.id, secret);
+  if (!token) return { ok: false, code: "unavailable" };
+  return { ok: true, token };
+}
+
+/**
+ * Passwordless Leme owner session. Only when DEMO_MODE is exactly "true".
+ * Never opens another shop, and never creates an account.
+ */
+export async function loginDemoOwner(
+  ip: string,
+): Promise<
+  | { ok: true; token: string }
+  | { ok: false; code: "not_found" | "unavailable" | "rate_limited" }
+> {
+  if (readEnv("DEMO_MODE") !== "true") return { ok: false, code: "not_found" };
+  if (!(await allowAttempt("painel.demo", ip))) return { ok: false, code: "rate_limited" };
+
+  const sql = await getSql();
+  const rows = await sql<{ id: string }>`
+    select o.id
+    from owner_accounts o
+    join shops s on s.id = o.shop_id
+    where s.slug = ${PUBLIC_SHOP_SLUG}
+    limit 1
+  `;
+  const owner = rows[0];
+  if (!owner) {
+    console.error("[demo] Leme owner account is missing");
+    return { ok: false, code: "not_found" };
+  }
+
+  const secret = readEnv("SESSION_SECRET");
+  if (!secret) {
+    console.error("[painel] SESSION_SECRET is not set");
+    return { ok: false, code: "unavailable" };
+  }
+  const token = sealOwnerSession(owner.id, secret);
   if (!token) return { ok: false, code: "unavailable" };
   return { ok: true, token };
 }
@@ -93,7 +135,7 @@ export async function loadOwner(ownerId: string): Promise<OwnerContext | null> {
 
 /** Cookie session, resolved to the owner's shop. Null when signed out. */
 export async function ownerFromToken(token: string | undefined): Promise<OwnerContext | null> {
-  const secret = process.env.SESSION_SECRET?.trim() ?? "";
+  const secret = readEnv("SESSION_SECRET");
   const ownerId = openOwnerSession(token, secret);
   if (!ownerId) return null;
   return loadOwner(ownerId);

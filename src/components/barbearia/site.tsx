@@ -3,6 +3,7 @@ import { Instagram, MapPin, Menu, Star, X } from "lucide-react";
 import { shop } from "@/shop-config";
 import { brl, hoursLine } from "@/lib/schedule";
 import { Booking, initialBooking, type BookingState } from "@/components/barbearia/booking";
+import { useDemoMode } from "@/components/demo-banner";
 
 const NAV = [
   { href: "#servicos", label: "Serviços" },
@@ -44,6 +45,7 @@ function WhatsAppIcon({ className }: { className?: string }) {
 }
 
 export function Site({ shopWhatsApp }: { shopWhatsApp: string | null }) {
+  const demo = useDemoMode();
   const [open, setOpen] = useState(false);
   const [booking, setBooking] = useState<BookingState>(initialBooking);
   const [lightbox, setLightbox] = useState<number | null>(null);
@@ -113,9 +115,7 @@ export function Site({ shopWhatsApp }: { shopWhatsApp: string | null }) {
 
   return (
     <div id="topo" className="min-h-dvh bg-ink text-cream">
-      <header
-        className="header-bar fixed inset-x-0 top-0 z-40"
-      >
+      <header className={`header-bar fixed inset-x-0 z-40 ${demo ? "top-7" : "top-0"}`}>
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-5">
           <a href="#topo" className="flex min-w-0 items-center gap-2 text-cream" aria-label={shop.name}>
             <span className="grid size-9 shrink-0 place-items-center border border-gold font-display text-xl text-gold">
