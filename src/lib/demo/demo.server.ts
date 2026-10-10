@@ -183,6 +183,19 @@ export async function resetDemoAgenda(now = new Date()): Promise<{ bookings: num
   return result;
 }
 
+/** Non-GET requests never reach the cron handler. Vercel Cron uses GET. */
+function demoResetNotAllowed(): Response {
+  return new Response("Method Not Allowed", {
+    status: 405,
+    headers: { Allow: "GET" },
+  });
+}
+
+export async function handleDemoResetHttp(request: Request): Promise<Response> {
+  if (request.method !== "GET") return demoResetNotAllowed();
+  return handleDemoReset(request);
+}
+
 export async function handleDemoReset(request: Request): Promise<Response> {
   if (!isDemoMode()) return new Response(null, { status: 404 });
   if (!cronAuthorized(request.headers.get("authorization"))) {

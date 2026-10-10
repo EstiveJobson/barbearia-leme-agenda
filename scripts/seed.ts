@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 /**
- * Seed Neon Postgres (DATABASE_URL) with Barbearia Leme plus a second fictional
- * shop used only for tenant-isolation tests.
+ * Seed Barbearia Leme plus a second fictional shop used only for
+ * tenant-isolation tests.
+ *
+ * With DATABASE_URL, writes to Neon Postgres. Without it, applies migrations
+ * and seeds the local PGLite fallback (in-memory for this process).
  *
  * Owner password hashes are derived from ADMIN_PASSWORD at runtime. The same
  * password is stored for both shops' owner accounts (one row each). The plain
@@ -10,32 +13,24 @@
  * Re-running updates shop profiles, catalog rows, weekly hours, and password
  * hashes. It does not delete bookings.
  */
-import pg from "pg";
+import { readdir, readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import bcrypt from "bcryptjs";
-import { lemeCatalog, testShopCatalog } from "../src/lib/agenda/catalog.ts";
+import pg from "pg";
+import { lemeCatalog, testShopCatalog, type CatalogShop } from "../src/lib/agenda/catalog.ts";
+import { pendingMigrations } from "./migration-plan.mjs";
+
+type QueryResult = { rows: Array<Record<string, unknown>> };
+
+type Queryable = {
+  query: (text: string, params?: unknown[]) => Promise<QueryResult>;
+};
 
 const databaseUrl = process.env.DATABASE_URL?.trim();
-if (!databaseUrl) {
-  console.error(
-    "[seed] DATABASE_URL is required. This script seeds Neon Postgres and does not use the local PGLite fallback.",
-  );
-  process.exit(1);
-}
-
 const adminPassword = process.env.ADMIN_PASSWORD ?? "";
-if (!adminPassword.trim()) {
-  console.error(
-    "[seed] ADMIN_PASSWORD is required so owner_accounts.password_hash can be created. Do not commit the password.",
-  );
-  process.exit(1);
-}
 
-/**
- * @param {import("pg").PoolClient} client
- * @param {ReturnType<typeof lemeCatalog>} shop
- * @param {string} passwordHash
- */
-async function upsertShop(client, shop, passwordHash) {
+async function upsertShop(client: Queryable, shop: CatalogShop, passwordHash: string) {
   const shopRow = await client.query(
     `insert into shops (
        slug, name, timezone, tagline, intro, city_line, seo_description,
@@ -71,10 +66,14 @@ async function upsertShop(client, shop, passwordHash) {
       shop.year,
     ],
   );
-  const shopId = shopRow.rows[0].id;
+  const shopId = shopRow.rows[0]?.id;
+  if (typeof shopId !== "string" || !shopId) {
+    throw new Error(`Failed to seed shop ${shop.slug}`);
+  }
 
   for (let i = 0; i < shop.barbers.length; i += 1) {
     const barber = shop.barbers[i];
+    if (!barber) continue;
     await client.query(
       `insert into barbers (shop_id, slug, name, specialty, photo, sort_order)
        values ($1,$2,$3,$4,$5,$6)
@@ -89,6 +88,7 @@ async function upsertShop(client, shop, passwordHash) {
 
   for (let i = 0; i < shop.services.length; i += 1) {
     const service = shop.services[i];
+    if (!service) continue;
     await client.query(
       `insert into services (
          shop_id, slug, name, description, price_cents, duration_minutes, sort_order
@@ -111,17 +111,16 @@ async function upsertShop(client, shop, passwordHash) {
     );
   }
 
-  const barberIds = await client.query(
-    "select id, slug from barbers where shop_id = $1",
-    [shopId],
-  );
+  const barberIds = await client.query("select id, slug from barbers where shop_id = $1", [shopId]);
   await client.query("delete from weekly_schedule where shop_id = $1", [shopId]);
   for (const barber of barberIds.rows) {
+    const barberId = barber.id;
+    if (typeof barberId !== "string") continue;
     for (const hours of shop.hours) {
       await client.query(
         `insert into weekly_schedule (shop_id, barber_id, weekday, start_time, end_time)
          values ($1,$2,$3,$4,$5)`,
-        [shopId, barber.id, hours.weekday, hours.start, hours.end],
+        [shopId, barberId, hours.weekday, hours.start, hours.end],
       );
     }
   }
@@ -136,14 +135,17 @@ async function upsertShop(client, shop, passwordHash) {
   console.log(`[seed] ${shop.slug} (${shopId})`);
 }
 
-async function main() {
-  const passwordHash = await bcrypt.hash(adminPassword, 12);
+async function seedBoth(client: Queryable, passwordHash: string) {
+  await upsertShop(client, lemeCatalog(), passwordHash);
+  await upsertShop(client, testShopCatalog(), passwordHash);
+}
+
+async function seedNeon(passwordHash: string) {
   const pool = new pg.Pool({ connectionString: databaseUrl, max: 1 });
   const client = await pool.connect();
   try {
     await client.query("begin");
-    await upsertShop(client, lemeCatalog(), passwordHash);
-    await upsertShop(client, testShopCatalog(), passwordHash);
+    await seedBoth(client, passwordHash);
     await client.query("commit");
     console.log("[seed] done — both shops use the ADMIN_PASSWORD hash.");
   } catch (err) {
@@ -159,7 +161,70 @@ async function main() {
   }
 }
 
-main().catch((err) => {
+const migrationsDir = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations");
+
+async function seedPglite(passwordHash: string) {
+  const { PGlite } = await import("@electric-sql/pglite");
+  const db = new PGlite();
+  await db.waitReady;
+  try {
+    let entries: string[] = [];
+    try {
+      entries = await readdir(migrationsDir);
+    } catch {
+      entries = [];
+    }
+    await db.exec(
+      "create table if not exists _migrations (name text primary key, applied_at timestamptz not null default now())",
+    );
+    const appliedResult = await db.query<{ name: string }>("select name from _migrations");
+    const applied = appliedResult.rows.map((row) => row.name);
+    for (const { name } of pendingMigrations(entries, applied)) {
+      const text = await readFile(join(migrationsDir, name), "utf8");
+      await db.transaction(async (tx) => {
+        await tx.exec(text);
+        await tx.query("insert into _migrations (name) values ($1)", [name]);
+      });
+      console.log(`[seed] applied ${name}`);
+    }
+
+    await db.transaction(async (tx) => {
+      await seedBoth(
+        {
+          query: async (text, params) => tx.query(text, params ?? []),
+        },
+        passwordHash,
+      );
+    });
+
+    const shops = await db.query<{ slug: string }>("select slug from shops order by slug");
+    const slugs = shops.rows.map((row) => row.slug).sort();
+    if (slugs.join() !== "barbearia-leme,barbearia-teste") {
+      throw new Error(`[seed] PGLite fallback missing shops: ${slugs.join(", ") || "(none)"}`);
+    }
+    console.log("[seed] done — both shops use the ADMIN_PASSWORD hash.");
+  } finally {
+    await db.close();
+  }
+}
+
+async function main() {
+  if (!adminPassword.trim()) {
+    console.error(
+      "[seed] ADMIN_PASSWORD is required so owner_accounts.password_hash can be created. Do not commit the password.",
+    );
+    process.exit(1);
+  }
+  const passwordHash = await bcrypt.hash(adminPassword, 12);
+  if (databaseUrl) {
+    await seedNeon(passwordHash);
+    return;
+  }
+  console.log("[seed] DATABASE_URL not set — seeding the local PGLite fallback.");
+  await seedPglite(passwordHash);
+}
+
+main().catch((err: { message?: string }) => {
   console.error("[seed] failed:", err?.message || err);
   process.exit(1);
 });

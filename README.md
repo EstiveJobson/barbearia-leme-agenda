@@ -29,9 +29,9 @@ The dev server listens on `http://127.0.0.1:8080`. With `DATABASE_URL` unset, th
 
 Do not set `NODE_ENV=production` without `DATABASE_URL`. Production refuses to fall back to PGLite.
 
-## Migrations and seed (Neon)
+## Migrations and seed
 
-Point both scripts at a Neon Postgres database. Nothing in the repository is a secret; copy `.env.example` to a gitignored `.env` and fill it in locally. The scripts read the process environment (a shell export or your host's env), not a committed file.
+`db:migrate` targets Neon when `DATABASE_URL` is set. `db:seed` uses that database, or an in-memory PGLite fallback when it is not. Nothing in the repository is a secret; copy `.env.example` to a gitignored `.env` and fill it in locally. The scripts read the process environment (a shell export or your host's env), not a committed file.
 
 ```bash
 export DATABASE_URL="postgres://user:password@host/db?sslmode=require"
@@ -49,7 +49,7 @@ npm run db:seed
 
 Each shop gets one `owner_accounts` row. Both password hashes are bcrypt hashes of `ADMIN_PASSWORD`. The plain password is not stored.
 
-If `DATABASE_URL` is missing, `db:seed` exits with an error. `db:migrate` does the same when `NODE_ENV=production`.
+If `DATABASE_URL` is set, `db:seed` writes to that Postgres database. If it is missing, the same upsert runs against an in-memory PGLite database after applying `migrations/*.sql`. `ADMIN_PASSWORD` is required in both cases. `db:migrate` exits with an error when `NODE_ENV=production` and `DATABASE_URL` is missing.
 
 ## Data rules
 
@@ -101,7 +101,7 @@ When it is on:
 - The public site and the panel show a small fixed **Demonstração** banner.
 - If Leme has no bookings yet, the first public slot list or panel agenda fills a sample relative to today in `America/Bahia`: bookings from 3 days ago through 7 days ahead, across Leme's barbers and services, about 40 to 60% of the grid taken, a few cancelled rows, and one or two blocks. Names and phones are invented (`Visitante Demo`, numbers such as `(71) 90000-0001`).
 - Push stays off. The panel hides **Ativar avisos** and shows **Avisos desativados na demonstração.** The endpoints that return the VAPID public key and that save a subscription respond `403` with `{ "error": "Avisos desativados na demonstração." }` and store nothing. Email still goes out. Push is not sent, including to subscriptions already in the database.
-- `GET /api/demo/reset` deletes bookings, blocks, and push subscriptions for `barbearia-leme` and `barbearia-teste`, then reloads Leme's sample for the current day. Services, barbers, hours, and owner accounts are left as they are. The route returns 404 when demo mode is off. When it is on, the request must send `Authorization: Bearer <CRON_SECRET>`. Anything else is 401.
+- `GET /api/demo/reset` deletes bookings, blocks, and push subscriptions for `barbearia-leme` and `barbearia-teste`, then reloads Leme's sample for the current day. Services, barbers, hours, and owner accounts are left as they are. The route returns 404 when demo mode is off. When it is on, the request must send `Authorization: Bearer <CRON_SECRET>`. Anything else is 401. POST and every other method return 405 with an `Allow: GET` header.
 
 Sample rows are inserted directly. They do not send the new-booking email or push.
 
@@ -114,7 +114,7 @@ Sample rows are inserted directly. They do not send the new-booking email or pus
 | `npm run dev` | Dev server on port 8080 |
 | `npm run build` | Production build, then `db:migrate` |
 | `npm run db:migrate` | Apply `migrations/*.sql` to `DATABASE_URL` |
-| `npm run db:seed` | Seed both shops against `DATABASE_URL` |
+| `npm run db:seed` | Seed both shops against `DATABASE_URL`, or PGLite when it is unset |
 | `npm run typecheck` | TypeScript |
 | `npm run preview` | Serve the production build locally |
 
@@ -142,7 +142,7 @@ migrations/0002_rate_limits.sql confirm and login rate-limit windows
 migrations/0003_block_reason.sql optional reason on a block
 migrations/0004_push_subscriptions.sql owner Web Push subscriptions
 scripts/migrate.mjs            Neon migrator
-scripts/seed.mjs               Neon seed
+scripts/seed.ts               Neon or local PGLite seed
 src/shop-config.ts             public site content (also the Leme seed source)
 src/components/barbearia/      page and the current booking UI
 src/lib/schedule.ts            slot labels in the shop timezone
