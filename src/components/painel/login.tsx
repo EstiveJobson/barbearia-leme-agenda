@@ -1,9 +1,13 @@
 import { useState, type FormEvent } from "react";
-import { useDemoMode } from "@/components/demo-banner";
+import { getRouteApi } from "@tanstack/react-router";
 import { submitDemoLogin, submitPanelLogin } from "@/lib/painel/painel.functions";
+import { LOGIN_INVALID_MESSAGE } from "@/lib/painel/gate";
+
+const routeApi = getRouteApi("/painel/entrar");
 
 export function PanelLogin() {
-  const demo = useDemoMode();
+  const { loja } = routeApi.useSearch();
+  const { demo } = routeApi.useLoaderData();
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -14,7 +18,7 @@ export function PanelLogin() {
     setPending(true);
     setError(null);
     try {
-      const result = await submitPanelLogin({ data: { password } });
+      const result = await submitPanelLogin({ data: { password, slug: loja } });
       if (!result.ok) {
         setError(result.message);
         setPending(false);
@@ -22,7 +26,7 @@ export function PanelLogin() {
       }
       window.location.assign("/painel");
     } catch {
-      setError("Não foi possível entrar. Confira a senha.");
+      setError(LOGIN_INVALID_MESSAGE);
       setPending(false);
     }
   }
@@ -32,7 +36,7 @@ export function PanelLogin() {
     setPending(true);
     setError(null);
     try {
-      const result = await submitDemoLogin();
+      const result = await submitDemoLogin({ data: { slug: loja } });
       if (!result.ok) {
         setError("message" in result && result.message ? result.message : "A demonstração não está disponível.");
         setPending(false);

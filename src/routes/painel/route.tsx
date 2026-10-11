@@ -8,6 +8,10 @@ export const Route = createFileRoute("/painel")({
     const target = panelLoginRedirect(gate.ok, location.pathname);
     if (target) throw redirect({ to: target });
   },
+  loader: async () => {
+    const gate = await fetchPanelGate();
+    return { demo: gate.ok && gate.isDemo };
+  },
   head: () => ({
     meta: [
       { title: "Painel Leme" },

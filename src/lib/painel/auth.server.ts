@@ -1,7 +1,7 @@
 import bcrypt from "bcryptjs";
 import { getSql } from "@/lib/db";
 import { allowAttempt, allowLoginAttempt } from "@/lib/agenda/rate-limit";
-import { PUBLIC_SHOP_SLUG } from "@/lib/agenda/shop.server";
+import { isDemoMode } from "@/lib/demo/demo.server";
 import { openOwnerSession, sealOwnerSession } from "@/lib/painel/session";
 
 export type OwnerContext = {
@@ -9,6 +9,9 @@ export type OwnerContext = {
   shopId: string;
   shopName: string;
   timezone: string;
+  sessionVersion: number;
+  /** DEMO_MODE is on and this shop's is_demo flag is true. */
+  isDemo: boolean;
 };
 
 /** Cost-12 hash of a string that is not a real password. Used when no account matches. */
@@ -28,10 +31,11 @@ async function passwordMatches(password: string, hash: string): Promise<boolean>
 }
 
 /**
- * Check the password against owner_accounts. On success the token carries only
- * that account id. shop_id is never put in the cookie.
+ * Check the password against one shop's owner account. The slug comes from the
+ * login screen. This never scans other owners and never prefers a shop on a tie.
  */
 export async function loginWithPassword(
+  slug: string,
   password: string,
   ip: string,
 ): Promise<
@@ -41,69 +45,67 @@ export async function loginWithPassword(
   if (!(await allowLoginAttempt(ip))) return { ok: false, code: "rate_limited" };
   const supplied = typeof password === "string" ? password : "";
   const usable = supplied.length > 0 && supplied.length <= 200 ? supplied : null;
+  const shopSlug = typeof slug === "string" ? slug.trim() : "";
 
   const sql = await getSql();
-  const owners = await sql<{ id: string; password_hash: string; slug: string }>`
-    select o.id, o.password_hash, s.slug
-    from owner_accounts o
-    join shops s on s.id = o.shop_id
-  `;
-
-  let matched: { id: string; slug: string } | null = null;
-  if (!owners.length) {
-    await passwordMatches(usable ?? "owner-login-dummy", DUMMY_PASSWORD_HASH);
-  } else {
-    for (const owner of owners) {
-      const ok = await passwordMatches(usable ?? "owner-login-dummy", owner.password_hash);
-      if (!usable || !ok) continue;
-      if (!matched || owner.slug === PUBLIC_SHOP_SLUG) matched = owner;
-    }
-  }
-  if (!matched) return { ok: false, code: "invalid" };
+  const owners = shopSlug
+    ? await sql<{ id: string; password_hash: string; session_version: number }>`
+        select o.id, o.password_hash, o.session_version
+        from owner_accounts o
+        join shops s on s.id = o.shop_id
+        where s.slug = ${shopSlug}
+        limit 1
+      `
+    : [];
+  const owner = owners[0];
+  const hash = owner?.password_hash || DUMMY_PASSWORD_HASH;
+  const ok = await passwordMatches(usable ?? "owner-login-dummy", hash);
+  if (!owner || !usable || !ok) return { ok: false, code: "invalid" };
 
   const secret = readEnv("SESSION_SECRET");
   if (!secret) {
     console.error("[painel] SESSION_SECRET is not set");
     return { ok: false, code: "unavailable" };
   }
-  const token = sealOwnerSession(matched.id, secret);
+  const token = sealOwnerSession(owner.id, secret, Date.now(), Number(owner.session_version));
   if (!token) return { ok: false, code: "unavailable" };
   return { ok: true, token };
 }
 
 /**
- * Passwordless Leme owner session. Only when DEMO_MODE is exactly "true".
- * Never opens another shop, and never creates an account.
+ * Passwordless session for the shop on the login screen.
+ * Only when DEMO_MODE is exactly "true" and that shop has is_demo.
  */
 export async function loginDemoOwner(
+  slug: string,
   ip: string,
 ): Promise<
   | { ok: true; token: string }
   | { ok: false; code: "not_found" | "unavailable" | "rate_limited" }
 > {
-  if (readEnv("DEMO_MODE") !== "true") return { ok: false, code: "not_found" };
+  if (!isDemoMode()) return { ok: false, code: "not_found" };
   if (!(await allowAttempt("painel.demo", ip))) return { ok: false, code: "rate_limited" };
 
+  const shopSlug = typeof slug === "string" ? slug.trim() : "";
   const sql = await getSql();
-  const rows = await sql<{ id: string }>`
-    select o.id
-    from owner_accounts o
-    join shops s on s.id = o.shop_id
-    where s.slug = ${PUBLIC_SHOP_SLUG}
-    limit 1
-  `;
+  const rows = shopSlug
+    ? await sql<{ id: string; session_version: number; is_demo: boolean }>`
+        select o.id, o.session_version, s.is_demo
+        from owner_accounts o
+        join shops s on s.id = o.shop_id
+        where s.slug = ${shopSlug}
+        limit 1
+      `
+    : [];
   const owner = rows[0];
-  if (!owner) {
-    console.error("[demo] Leme owner account is missing");
-    return { ok: false, code: "not_found" };
-  }
+  if (!owner || owner.is_demo !== true) return { ok: false, code: "not_found" };
 
   const secret = readEnv("SESSION_SECRET");
   if (!secret) {
     console.error("[painel] SESSION_SECRET is not set");
     return { ok: false, code: "unavailable" };
   }
-  const token = sealOwnerSession(owner.id, secret);
+  const token = sealOwnerSession(owner.id, secret, Date.now(), Number(owner.session_version));
   if (!token) return { ok: false, code: "unavailable" };
   return { ok: true, token };
 }
@@ -116,8 +118,10 @@ export async function loadOwner(ownerId: string): Promise<OwnerContext | null> {
     shop_id: string;
     shop_name: string;
     timezone: string;
+    session_version: number;
+    is_demo: boolean;
   }>`
-    select o.id as owner_id, o.shop_id, s.name as shop_name, s.timezone
+    select o.id as owner_id, o.shop_id, s.name as shop_name, s.timezone, o.session_version, s.is_demo
     from owner_accounts o
     join shops s on s.id = o.shop_id
     where o.id = ${ownerId}
@@ -130,13 +134,17 @@ export async function loadOwner(ownerId: string): Promise<OwnerContext | null> {
     shopId: row.shop_id,
     shopName: row.shop_name,
     timezone: row.timezone,
+    sessionVersion: Number(row.session_version),
+    isDemo: isDemoMode() && row.is_demo === true,
   };
 }
 
-/** Cookie session, resolved to the owner's shop. Null when signed out. */
+/** Cookie session, resolved to the owner's shop. Null when signed out or revoked. */
 export async function ownerFromToken(token: string | undefined): Promise<OwnerContext | null> {
   const secret = readEnv("SESSION_SECRET");
-  const ownerId = openOwnerSession(token, secret);
-  if (!ownerId) return null;
-  return loadOwner(ownerId);
+  const opened = openOwnerSession(token, secret);
+  if (!opened) return null;
+  const owner = await loadOwner(opened.ownerId);
+  if (!owner || owner.sessionVersion !== opened.sessionVersion) return null;
+  return owner;
 }

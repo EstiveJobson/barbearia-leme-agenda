@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import { lemeCatalog, testShopCatalog, type CatalogShop } from "@/lib/agenda/catalog";
+import type { TaggedSql } from "@/lib/demo/sample-write";
 
 type Query = <T = Record<string, unknown>>(text: string, params?: unknown[]) => Promise<T[]>;
 
@@ -7,8 +8,8 @@ async function upsertShop(query: Query, shop: CatalogShop, passwordHash: string 
   const shopRows = await query<{ id: string }>(
     `insert into shops (
        slug, name, timezone, tagline, intro, city_line, seo_description,
-       whatsapp, instagram, address, map_query, slot_minutes, year
-     ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+       whatsapp, instagram, address, map_query, slot_minutes, year, is_demo
+     ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13, true)
      on conflict (slug) do update set
        name = excluded.name,
        timezone = excluded.timezone,
@@ -21,7 +22,8 @@ async function upsertShop(query: Query, shop: CatalogShop, passwordHash: string 
        address = excluded.address,
        map_query = excluded.map_query,
        slot_minutes = excluded.slot_minutes,
-       year = excluded.year
+       year = excluded.year,
+       is_demo = true
      returning id`,
     [
       shop.slug,
@@ -98,7 +100,9 @@ async function upsertShop(query: Query, shop: CatalogShop, passwordHash: string 
     await query(
       `insert into owner_accounts (shop_id, password_hash)
        values ($1, $2)
-       on conflict (shop_id) do update set password_hash = excluded.password_hash`,
+       on conflict (shop_id) do update set
+         password_hash = excluded.password_hash,
+         session_version = owner_accounts.session_version + 1`,
       [shopId, passwordHash],
     );
   }
@@ -115,4 +119,16 @@ export async function seedLocalCatalogIfEmpty(query: Query): Promise<void> {
   const passwordHash = password ? await bcrypt.hash(password, 12) : null;
   await upsertShop(query, lemeCatalog(), passwordHash);
   await upsertShop(query, testShopCatalog(), passwordHash);
+  if (process.env.DEMO_MODE?.trim() !== "true") return;
+  const { insertDemoSampleIfEmpty } = await import("@/lib/demo/sample-write");
+  await insertDemoSampleIfEmpty(toSql(query));
+}
+
+function toSql(query: Query): TaggedSql {
+  const sql = (async (strings: TemplateStringsArray, ...values: unknown[]) => {
+    let text = strings[0] ?? "";
+    for (let i = 0; i < values.length; i += 1) text += `$${i + 1}${strings[i + 1] ?? ""}`;
+    return query(text, values);
+  }) as TaggedSql;
+  return sql;
 }

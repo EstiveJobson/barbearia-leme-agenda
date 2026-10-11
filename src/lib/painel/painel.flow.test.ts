@@ -91,12 +91,15 @@ test("session cookie is signed, expires, and stores only the owner id", () => {
   const token = sealOwnerSession(ownerId, SECRET);
   assert.ok(token);
   assert.equal(token.includes(PASSWORD), false);
-  assert.equal(openOwnerSession(token, SECRET), ownerId);
+  const opened = openOwnerSession(token, SECRET);
+  assert.equal(opened?.ownerId, ownerId);
+  assert.equal(opened?.sessionVersion, 1);
   const payload = JSON.parse(Buffer.from(token.split(".")[0] ?? "", "base64url").toString("utf8")) as {
     sub: string;
     exp: number;
+    ver: number;
   };
-  assert.deepEqual(Object.keys(payload).sort(), ["exp", "sub"]);
+  assert.deepEqual(Object.keys(payload).sort(), ["exp", "sub", "ver"]);
   assert.equal(openOwnerSession(`${token}x`, SECRET), null);
   assert.equal(openOwnerSession(token, "other-secret"), null);
   const expired = sealOwnerSession(ownerId, SECRET, Date.now() - 31 * 24 * 60 * 60 * 1000);
@@ -106,17 +109,17 @@ test("session cookie is signed, expires, and stores only the owner id", () => {
 test("login checks the owner hash and the panel only sees that shop", async () => {
   await resetBookingRateLimit();
   const account = await ensureOwners();
-  const wrong = await loginWithPassword("nao-e-a-senha", "ip-login-wrong");
+  const wrong = await loginWithPassword("barbearia-leme", "nao-e-a-senha", "ip-login-wrong");
   assert.equal(wrong.ok, false);
   if (!wrong.ok) assert.equal(wrong.code, "invalid");
 
-  const logged = await loginWithPassword(PASSWORD, "ip-login-ok");
+  const logged = await loginWithPassword("barbearia-leme", PASSWORD, "ip-login-ok");
   assert.equal(logged.ok, true);
   if (!logged.ok) return;
   assert.equal(logged.token.includes(PASSWORD), false);
-  const ownerId = openOwnerSession(logged.token, SECRET);
-  assert.equal(ownerId, account.id);
-  const owner = await loadOwner(ownerId ?? "");
+  const opened = openOwnerSession(logged.token, SECRET);
+  assert.equal(opened?.ownerId, account.id);
+  const owner = await loadOwner(opened?.ownerId ?? "");
   assert.equal(owner?.shopId, account.shop_id);
 
   const sql = await getSql();
@@ -258,13 +261,13 @@ test("login attempts are rate-limited per IP", async () => {
   await resetBookingRateLimit();
   await ensureOwners();
   for (let i = 0; i < 8; i += 1) {
-    const result = await loginWithPassword("errada", "ip-painel-spam");
+    const result = await loginWithPassword("barbearia-leme", "errada", "ip-painel-spam");
     assert.equal(result.ok, false);
     if (!result.ok) assert.equal(result.code, "invalid");
   }
-  const limited = await loginWithPassword(PASSWORD, "ip-painel-spam");
+  const limited = await loginWithPassword("barbearia-leme", PASSWORD, "ip-painel-spam");
   assert.equal(limited.ok, false);
   if (!limited.ok) assert.equal(limited.code, "rate_limited");
-  const otherIp = await loginWithPassword(PASSWORD, "ip-painel-ok-2");
+  const otherIp = await loginWithPassword("barbearia-leme", PASSWORD, "ip-painel-ok-2");
   assert.equal(otherIp.ok, true);
 });

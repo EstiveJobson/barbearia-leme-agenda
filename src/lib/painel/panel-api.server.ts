@@ -1,6 +1,5 @@
 import type { AgendaInput, BlockInput } from "@/lib/painel/agenda.server";
 import { ownerFromToken, type OwnerContext } from "@/lib/painel/auth.server";
-import { isDemoMode } from "@/lib/demo/demo.server";
 import { DEMO_PUSH_DISABLED } from "@/lib/painel/gate";
 
 export type PanelDenied = { ok: false; status: 401 | 404 | 400; message?: string };
@@ -57,9 +56,9 @@ export async function removeBlockForToken(token: string | undefined, id: string)
 }
 
 export async function pushSetupForToken(token: string | undefined) {
-  if (isDemoMode()) return demoPushOff();
   const owner = await requireOwner(token);
   if (denied(owner)) return owner;
+  if (owner.isDemo) return demoPushOff();
   const { pushAvailable } = await import("@/lib/agenda/notify.server");
   const publicKey = pushAvailable();
   if (!publicKey) return { ok: true as const, enabled: false as const };
@@ -70,9 +69,9 @@ export async function savePushForToken(
   token: string | undefined,
   input: { endpoint: string; p256dh: string; auth: string },
 ) {
-  if (isDemoMode()) return demoPushOff();
   const owner = await requireOwner(token);
   if (denied(owner)) return owner;
+  if (owner.isDemo) return demoPushOff();
   const { savePushSubscription } = await import("@/lib/agenda/notify.server");
   const result = await savePushSubscription(owner, input);
   if (!result.ok) {

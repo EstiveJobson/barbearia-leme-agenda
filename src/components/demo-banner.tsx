@@ -2,11 +2,13 @@ import { useRouterState } from "@tanstack/react-router";
 
 export function useDemoMode(): boolean {
   return useRouterState({
-    select: (state) =>
-      state.matches.some((match) => {
-        const data = match.loaderData as { demo?: boolean } | undefined;
-        return data?.demo === true;
-      }),
+    select: (state) => {
+      for (let index = state.matches.length - 1; index >= 0; index -= 1) {
+        const data = state.matches[index]?.loaderData as { demo?: boolean } | undefined;
+        if (data && typeof data.demo === "boolean") return data.demo;
+      }
+      return false;
+    },
   });
 }
 
