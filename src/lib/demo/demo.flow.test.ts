@@ -5,7 +5,7 @@ import { shop } from "@/shop-config";
 import { getSql } from "@/lib/db";
 import { resetBookingRateLimit } from "@/lib/agenda/rate-limit";
 import { activeFillRatio, buildDemoSample, type DemoInput } from "@/lib/demo/sample";
-import { handleDemoReset, isDemoMode, maybeSeedDemoAgenda } from "@/lib/demo/demo.server";
+import { ensureDemoSampleOnce, handleDemoReset, isDemoMode } from "@/lib/demo/demo.server";
 import { notifyNewBooking, savePushSubscription } from "@/lib/agenda/notify.server";
 import { loadOwner, loginDemoOwner, loginWithPassword } from "@/lib/painel/auth.server";
 import { DEMO_PUSH_DISABLED, panelLoginRedirect } from "@/lib/painel/gate";
@@ -214,7 +214,7 @@ test("demo reset, demo login, and shop isolation", async () => {
       if (value === undefined) delete process.env.DEMO_MODE;
       else process.env.DEMO_MODE = value;
       assert.equal(isDemoMode(), false);
-      const login = await loginDemoOwner("ip-demo-off");
+      const login = await loginDemoOwner("barbearia-leme", "ip-demo-off");
       assert.equal(login.ok, false);
       if (!login.ok) assert.equal(login.code, "not_found");
       const hidden = await handleDemoReset(request(`Bearer ${CRON}`));
@@ -229,7 +229,7 @@ test("demo reset, demo login, and shop isolation", async () => {
       }
     }
 
-    const still = await loginWithPassword(PASSWORD, "ip-demo-off");
+    const still = await loginWithPassword("barbearia-leme", PASSWORD, "ip-demo-off");
     assert.equal(still.ok, true);
 
     process.env.DEMO_MODE = "true";
@@ -298,9 +298,11 @@ test("demo reset, demo login, and shop isolation", async () => {
     assert.ok(body.bookings > 0);
     assert.ok(body.blocks >= 1);
     assert.equal(Object.keys(body).sort().join(), "blocks,bookings,ok");
-    assert.equal(await countFor("barbearia-leme", "bookings"), body.bookings);
-    assert.equal(await countFor("barbearia-teste", "bookings"), 0);
-    assert.equal(await countFor("barbearia-teste", "blocks"), 0);
+    const lemeBookings = await countFor("barbearia-leme", "bookings");
+    const testeBookings = await countFor("barbearia-teste", "bookings");
+    assert.ok(lemeBookings > 0);
+    assert.ok(testeBookings > 0);
+    assert.equal(lemeBookings + testeBookings, body.bookings);
     const wiped = await sql<{ id: string }>`select id from bookings where customer_name = ${"Cliente Resetado"}`;
     assert.equal(wiped.length, 0);
     const subsLeft = await sql<{ n: number }>`select count(*)::int as n from push_subscriptions`;
@@ -348,19 +350,19 @@ test("demo reset, demo login, and shop isolation", async () => {
       join services sv on sv.shop_id = s.id and sv.slug = ${"corte"}
       where s.slug = ${"barbearia-leme"}
     `;
-    await maybeSeedDemoAgenda();
+    await ensureDemoSampleOnce();
     const kept = await sql<{ id: string }>`select id from bookings where customer_name = ${"Nao Apagar"}`;
     assert.equal(kept.length, 1);
     assert.equal(await countFor("barbearia-leme", "bookings"), lemeBefore + 1);
 
     await resetBookingRateLimit();
-    const demoLogin = await loginDemoOwner("ip-demo-on");
+    const demoLogin = await loginDemoOwner("barbearia-leme", "ip-demo-on");
     assert.equal(demoLogin.ok, true);
     if (!demoLogin.ok) return;
     assert.equal(demoLogin.token.includes(PASSWORD), false);
     assert.equal(demoLogin.token.includes(SECRET), false);
-    const ownerId = openOwnerSession(demoLogin.token, SECRET);
-    const owner = await loadOwner(ownerId ?? "");
+    const opened = openOwnerSession(demoLogin.token, SECRET);
+    const owner = await loadOwner(opened?.ownerId ?? "");
     assert.equal(owner?.shopName, "Barbearia Leme");
     const lemeShop = await sql<{ id: string }>`select id from shops where slug = ${"barbearia-leme"}`;
     assert.equal(owner?.shopId, lemeShop[0]?.id);
@@ -399,6 +401,9 @@ test("demo reset, demo login, and shop isolation", async () => {
     const blockRemains = await sql<{ id: string }>`select id from blocks where id = ${secretBlock}`;
     assert.equal(blockRemains.length, 1);
 
+    const blocksBeforeInvasion = await sql<{ n: number }>`
+      select count(*)::int as n from blocks where shop_id = ${teste.shop_id}
+    `;
     const block = await blockForToken(demoLogin.token, {
       barberId: teste.barber_id,
       date: "2026-10-13",
@@ -415,7 +420,7 @@ test("demo reset, demo login, and shop isolation", async () => {
     const testeBlocks = await sql<{ n: number }>`
       select count(*)::int as n from blocks where shop_id = ${teste.shop_id}
     `;
-    assert.equal(Number(testeBlocks[0]?.n ?? 0), 1);
+    assert.equal(Number(testeBlocks[0]?.n ?? 0), Number(blocksBeforeInvasion[0]?.n ?? 0));
 
     const unsigned = [
       await agendaForToken(undefined, { view: "today", barberId: null, includeCancelled: false }),
@@ -450,7 +455,7 @@ test("demo reset, demo login, and shop isolation", async () => {
     }
     const unsignedPush = await pushSetupForToken(undefined);
     assert.equal(unsignedPush.ok, false);
-    if (!unsignedPush.ok) assert.equal(unsignedPush.status, 403);
+    if (!unsignedPush.ok) assert.equal(unsignedPush.status, 401);
     const savedPush = await savePushForToken(demoLogin.token, {
       endpoint: "https://push.example.test/demo",
       p256dh: "cccccccccccccccc",

@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { OWNER_COOKIE, OWNER_COOKIE_CLEAR, OWNER_COOKIE_OPTIONS } from "@/lib/painel/cookie";
+import { LOGIN_INVALID_MESSAGE } from "@/lib/painel/gate";
 
 function asRecord(input: unknown): Record<string, unknown> {
   if (!input || typeof input !== "object") return {};
@@ -10,8 +11,13 @@ function text(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
-function loginInput(input: unknown): { password: string } {
-  return { password: text(asRecord(input).password) };
+function loginInput(input: unknown): { password: string; slug: string } {
+  const record = asRecord(input);
+  return { password: text(record.password), slug: text(record.slug).trim() };
+}
+
+function slugInput(input: unknown): { slug: string } {
+  return { slug: text(asRecord(input).slug).trim() };
 }
 
 function agendaInput(input: unknown): {
@@ -99,14 +105,14 @@ async function setStatus(code: number) {
 export const fetchPanelGate = createServerFn({ method: "GET" }).handler(async () => {
   const owner = await currentOwner();
   if (!owner) return { ok: false as const };
-  return { ok: true as const, shopName: owner.shopName };
+  return { ok: true as const, shopName: owner.shopName, isDemo: owner.isDemo };
 });
 
 export const submitPanelLogin = createServerFn({ method: "POST" })
   .validator(loginInput)
   .handler(async ({ data }) => {
     const { loginWithPassword } = await import("@/lib/painel/auth.server");
-    const result = await loginWithPassword(data.password, await clientIp());
+    const result = await loginWithPassword(data.slug, data.password, await clientIp());
     if (!result.ok) {
       if (result.code === "rate_limited") {
         const { RATE_LIMIT_MESSAGE } = await import("@/lib/agenda/rate-limit");
@@ -114,33 +120,35 @@ export const submitPanelLogin = createServerFn({ method: "POST" })
         return { ok: false as const, message: RATE_LIMIT_MESSAGE };
       }
       await setStatus(result.code === "unavailable" ? 503 : 401);
-      return { ok: false as const, message: "Não foi possível entrar. Confira a senha." };
+      return { ok: false as const, message: LOGIN_INVALID_MESSAGE };
     }
     const { setCookie } = await import("@tanstack/react-start/server");
     setCookie(OWNER_COOKIE, result.token, OWNER_COOKIE_OPTIONS);
     return { ok: true as const };
   });
 
-export const submitDemoLogin = createServerFn({ method: "POST" }).handler(async () => {
-  const { loginDemoOwner } = await import("@/lib/painel/auth.server");
-  const result = await loginDemoOwner(await clientIp());
-  if (!result.ok) {
-    if (result.code === "rate_limited") {
-      const { RATE_LIMIT_MESSAGE } = await import("@/lib/agenda/rate-limit");
-      await setStatus(429);
-      return { ok: false as const, message: RATE_LIMIT_MESSAGE };
-    }
-    if (result.code === "unavailable") {
-      await setStatus(503);
+export const submitDemoLogin = createServerFn({ method: "POST" })
+  .validator(slugInput)
+  .handler(async ({ data }) => {
+    const { loginDemoOwner } = await import("@/lib/painel/auth.server");
+    const result = await loginDemoOwner(data.slug, await clientIp());
+    if (!result.ok) {
+      if (result.code === "rate_limited") {
+        const { RATE_LIMIT_MESSAGE } = await import("@/lib/agenda/rate-limit");
+        await setStatus(429);
+        return { ok: false as const, message: RATE_LIMIT_MESSAGE };
+      }
+      if (result.code === "unavailable") {
+        await setStatus(503);
+        return { ok: false as const };
+      }
+      await setStatus(404);
       return { ok: false as const };
     }
-    await setStatus(404);
-    return { ok: false as const };
-  }
-  const { setCookie } = await import("@tanstack/react-start/server");
-  setCookie(OWNER_COOKIE, result.token, OWNER_COOKIE_OPTIONS);
-  return { ok: true as const };
-});
+    const { setCookie } = await import("@tanstack/react-start/server");
+    setCookie(OWNER_COOKIE, result.token, OWNER_COOKIE_OPTIONS);
+    return { ok: true as const };
+  });
 
 export const submitPanelLogout = createServerFn({ method: "POST" }).handler(async () => {
   const { deleteCookie } = await import("@tanstack/react-start/server");

@@ -8,5 +8,8 @@ export function panelLoginRedirect(hasSession: boolean, pathname: string): "/pai
   return null;
 }
 
-/** Panel copy and the JSON body of the push endpoints while demo mode is on. */
+/** Wrong shop and wrong password share this message. */
+export const LOGIN_INVALID_MESSAGE = "Senha ou loja incorreta.";
+
+/** Panel copy and the JSON body of the push endpoints while demo mode is on for that shop. */
 export const DEMO_PUSH_DISABLED = "Avisos desativados na demonstração.";

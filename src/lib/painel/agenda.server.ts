@@ -1,7 +1,7 @@
 import { getSql, type Sql } from "@/lib/db";
 import { customerWhatsAppLink, maskBrazilianPhone } from "@/lib/agenda/phone";
 import { zonedSlotToUtc } from "@/lib/agenda/time";
-import { maybeSeedDemoAgenda } from "@/lib/demo/demo.server";
+import { ensureDemoSampleOnce } from "@/lib/demo/demo.server";
 import type { OwnerContext } from "@/lib/painel/auth.server";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -157,7 +157,7 @@ export async function loadAgenda(
   input: AgendaInput,
   now = new Date(),
 ): Promise<{ ok: true; data: AgendaData } | Fail> {
-  await maybeSeedDemoAgenda(now);
+  await ensureDemoSampleOnce(now);
   const sql = await getSql();
   if (input.barberId && !isUuid(input.barberId)) return { ok: false, status: 404 };
   if (input.barberId) {

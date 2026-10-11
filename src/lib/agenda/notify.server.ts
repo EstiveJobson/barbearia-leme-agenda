@@ -1,6 +1,6 @@
 import { getSql } from "@/lib/db";
 import { maskBrazilianPhone } from "@/lib/agenda/phone";
-import { isDemoMode } from "@/lib/demo/demo.server";
+import { shopDemoEnabledById } from "@/lib/demo/demo.server";
 import { DEMO_PUSH_DISABLED } from "@/lib/painel/gate";
 
 const RESEND_URL = "https://api.resend.com/emails";
@@ -197,7 +197,7 @@ async function deliverWithWebPush(keys: Vapid, target: PushTarget, body: string)
 }
 
 async function sendBookingPush(notice: BookingNotice, sender?: PushSender): Promise<void> {
-  if (isDemoMode()) {
+  if (await shopDemoEnabledById(notice.shopId)) {
     console.info("[notify] push skipped: demo mode");
     return;
   }
@@ -253,7 +253,7 @@ export async function savePushSubscription(
   owner: { ownerId: string; shopId: string },
   input: { endpoint: string; p256dh: string; auth: string },
 ): Promise<{ ok: true } | { ok: false; status: 400; message: string } | { ok: false; status: 403; error: string }> {
-  if (isDemoMode()) return { ok: false, status: 403, error: DEMO_PUSH_DISABLED };
+  if (await shopDemoEnabledById(owner.shopId)) return { ok: false, status: 403, error: DEMO_PUSH_DISABLED };
   if (!readVapid()) {
     return { ok: false, status: 400, message: "Avisos não estão disponíveis." };
   }

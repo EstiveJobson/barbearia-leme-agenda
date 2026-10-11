@@ -6,19 +6,23 @@
  * With DATABASE_URL, writes to Neon Postgres. Without it, applies migrations
  * and seeds the local PGLite fallback (in-memory for this process).
  *
- * Owner password hashes are derived from ADMIN_PASSWORD at runtime. The same
- * password is stored for both shops' owner accounts (one row each). The plain
- * password is never written to the database or the repo.
+ * Leme's owner hash comes from ADMIN_PASSWORD. The test shop uses
+ * TEST_SHOP_PASSWORD when set; otherwise a random password is printed once.
+ * Plain passwords are never written to the database or the repo.
  *
- * Re-running updates shop profiles, catalog rows, weekly hours, and password
- * hashes. It does not delete bookings.
+ * Both shops are marked is_demo. Re-running updates shop profiles, catalog
+ * rows, weekly hours, and password hashes (and bumps session_version).
+ * It does not delete bookings. When DEMO_MODE=true, demo shops with no
+ * bookings receive a sample agenda.
  */
+import { randomBytes } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import bcrypt from "bcryptjs";
 import pg from "pg";
 import { lemeCatalog, testShopCatalog, type CatalogShop } from "../src/lib/agenda/catalog.ts";
+import { insertDemoSampleIfEmpty } from "../src/lib/demo/sample-write.ts";
 import { pendingMigrations } from "./migration-plan.mjs";
 
 type QueryResult = { rows: Array<Record<string, unknown>> };
@@ -30,12 +34,25 @@ type Queryable = {
 const databaseUrl = process.env.DATABASE_URL?.trim();
 const adminPassword = process.env.ADMIN_PASSWORD ?? "";
 
+function asSql(client: Queryable) {
+  const run = async <T>(text: string, params: unknown[] = []): Promise<T[]> => {
+    const result = await client.query(text, params);
+    return result.rows as T[];
+  };
+  const sql = (async (strings: TemplateStringsArray, ...values: unknown[]) => {
+    let text = strings[0] ?? "";
+    for (let i = 0; i < values.length; i += 1) text += `$${i + 1}${strings[i + 1] ?? ""}`;
+    return run(text, values);
+  }) as Parameters<typeof insertDemoSampleIfEmpty>[0];
+  return sql;
+}
+
 async function upsertShop(client: Queryable, shop: CatalogShop, passwordHash: string) {
   const shopRow = await client.query(
     `insert into shops (
        slug, name, timezone, tagline, intro, city_line, seo_description,
-       whatsapp, instagram, address, map_query, slot_minutes, year
-     ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+       whatsapp, instagram, address, map_query, slot_minutes, year, is_demo
+     ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13, true)
      on conflict (slug) do update set
        name = excluded.name,
        timezone = excluded.timezone,
@@ -48,7 +65,8 @@ async function upsertShop(client: Queryable, shop: CatalogShop, passwordHash: st
        address = excluded.address,
        map_query = excluded.map_query,
        slot_minutes = excluded.slot_minutes,
-       year = excluded.year
+       year = excluded.year,
+       is_demo = true
      returning id`,
     [
       shop.slug,
@@ -128,26 +146,31 @@ async function upsertShop(client: Queryable, shop: CatalogShop, passwordHash: st
   await client.query(
     `insert into owner_accounts (shop_id, password_hash)
      values ($1, $2)
-     on conflict (shop_id) do update set password_hash = excluded.password_hash`,
+     on conflict (shop_id) do update set
+       password_hash = excluded.password_hash,
+       session_version = owner_accounts.session_version + 1`,
     [shopId, passwordHash],
   );
 
   console.log(`[seed] ${shop.slug} (${shopId})`);
 }
 
-async function seedBoth(client: Queryable, passwordHash: string) {
-  await upsertShop(client, lemeCatalog(), passwordHash);
-  await upsertShop(client, testShopCatalog(), passwordHash);
+async function seedBoth(client: Queryable, lemeHash: string, testHash: string) {
+  await upsertShop(client, lemeCatalog(), lemeHash);
+  await upsertShop(client, testShopCatalog(), testHash);
+  if (process.env.DEMO_MODE?.trim() === "true") {
+    await insertDemoSampleIfEmpty(asSql(client));
+  }
 }
 
-async function seedNeon(passwordHash: string) {
+async function seedNeon(lemeHash: string, testHash: string) {
   const pool = new pg.Pool({ connectionString: databaseUrl, max: 1 });
   const client = await pool.connect();
   try {
     await client.query("begin");
-    await seedBoth(client, passwordHash);
+    await seedBoth(client, lemeHash, testHash);
     await client.query("commit");
-    console.log("[seed] done — both shops use the ADMIN_PASSWORD hash.");
+    console.log("[seed] done — Leme uses ADMIN_PASSWORD; the test shop has its own password.");
   } catch (err) {
     try {
       await client.query("rollback");
@@ -163,7 +186,7 @@ async function seedNeon(passwordHash: string) {
 
 const migrationsDir = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations");
 
-async function seedPglite(passwordHash: string) {
+async function seedPglite(lemeHash: string, testHash: string) {
   const { PGlite } = await import("@electric-sql/pglite");
   const db = new PGlite();
   await db.waitReady;
@@ -193,7 +216,8 @@ async function seedPglite(passwordHash: string) {
         {
           query: async (text, params) => tx.query(text, params ?? []),
         },
-        passwordHash,
+        lemeHash,
+        testHash,
       );
     });
 
@@ -202,7 +226,7 @@ async function seedPglite(passwordHash: string) {
     if (slugs.join() !== "barbearia-leme,barbearia-teste") {
       throw new Error(`[seed] PGLite fallback missing shops: ${slugs.join(", ") || "(none)"}`);
     }
-    console.log("[seed] done — both shops use the ADMIN_PASSWORD hash.");
+    console.log("[seed] done — Leme uses ADMIN_PASSWORD; the test shop has its own password.");
   } finally {
     await db.close();
   }
@@ -215,13 +239,22 @@ async function main() {
     );
     process.exit(1);
   }
-  const passwordHash = await bcrypt.hash(adminPassword, 12);
+  const configuredTestPassword = process.env.TEST_SHOP_PASSWORD?.trim() ?? "";
+  const generatedTestPassword = !configuredTestPassword;
+  const testPassword = configuredTestPassword || randomBytes(24).toString("base64url");
+  const lemeHash = await bcrypt.hash(adminPassword, 12);
+  const testHash = await bcrypt.hash(testPassword, 12);
   if (databaseUrl) {
-    await seedNeon(passwordHash);
-    return;
+    await seedNeon(lemeHash, testHash);
+  } else {
+    console.log("[seed] DATABASE_URL not set — seeding the local PGLite fallback.");
+    await seedPglite(lemeHash, testHash);
   }
-  console.log("[seed] DATABASE_URL not set — seeding the local PGLite fallback.");
-  await seedPglite(passwordHash);
+  if (generatedTestPassword) {
+    console.log(
+      `[seed] TEST_SHOP_PASSWORD was not set. One-time password for barbearia-teste: ${testPassword}`,
+    );
+  }
 }
 
 main().catch((err: { message?: string }) => {
