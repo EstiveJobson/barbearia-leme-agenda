@@ -6,6 +6,7 @@ const MAX_HITS = 8;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const BOOKING_ROUTE = "booking.confirm";
 const LOGIN_ROUTE = "painel.login";
+const TEST_PUSH_ROUTE = "painel.testpush";
 
 export const RATE_LIMIT_MESSAGE = "Muitas tentativas. Tente de novo em alguns minutos.";
 
@@ -56,6 +57,11 @@ export function allowBookingAttempt(ip: string, now = Date.now()): Promise<boole
 /** Eight panel login attempts per IP per 10 minutes. */
 export function allowLoginAttempt(ip: string, now = Date.now()): Promise<boolean> {
   return allowAttempt(LOGIN_ROUTE, ip, DEFAULT_LIMIT, now);
+}
+
+/** Five test pushes per owner account per 10 minutes. The stored key is a hash of the owner id. */
+export function allowTestPush(ownerId: string, now = Date.now()): Promise<boolean> {
+  return allowAttempt(TEST_PUSH_ROUTE, ownerId, { windowMs: WINDOW_MS, max: 5 }, now);
 }
 
 /** Test helper. Clears every window so cases don't share a counter. */

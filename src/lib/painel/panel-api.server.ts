@@ -1,6 +1,7 @@
 import type { AgendaInput, BlockInput } from "@/lib/painel/agenda.server";
 import { ownerFromToken, type OwnerContext } from "@/lib/painel/auth.server";
-import { DEMO_PUSH_DISABLED } from "@/lib/painel/gate";
+import { DEMO_PUSH_DISABLED, TEST_PUSH_RATE_LIMIT } from "@/lib/painel/gate";
+import type { PushSender } from "@/lib/agenda/notify.server";
 
 export type PanelDenied = { ok: false; status: 401 | 404 | 400; message?: string };
 
@@ -87,4 +88,24 @@ export async function removePushForToken(token: string | undefined, endpoint: st
   const { deletePushSubscription } = await import("@/lib/agenda/notify.server");
   await deletePushSubscription(owner, endpoint);
   return { ok: true as const };
+}
+
+/**
+ * Sends one test push. shop_id comes from the session only.
+ * `sender` is for tests; the browser cannot supply it.
+ */
+export async function sendTestPushForToken(token: string | undefined, sender?: PushSender) {
+  const owner = await requireOwner(token);
+  if (denied(owner)) return owner;
+  if (owner.isDemo) return { ok: false as const, status: 403 as const, message: DEMO_PUSH_DISABLED };
+  const { pushAvailable, sendShopTestPush } = await import("@/lib/agenda/notify.server");
+  if (!pushAvailable()) {
+    return { ok: false as const, status: 400 as const, message: "Avisos não estão disponíveis." };
+  }
+  const { allowTestPush } = await import("@/lib/agenda/rate-limit");
+  if (!(await allowTestPush(owner.ownerId))) {
+    return { ok: false as const, status: 429 as const, message: TEST_PUSH_RATE_LIMIT };
+  }
+  const sent = await sendShopTestPush(owner.shopId, sender);
+  return { ok: true as const, sent: sent.sent, message: sent.message };
 }

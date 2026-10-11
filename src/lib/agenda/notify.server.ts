@@ -1,7 +1,7 @@
 import { getSql } from "@/lib/db";
 import { maskBrazilianPhone } from "@/lib/agenda/phone";
 import { shopDemoEnabledById } from "@/lib/demo/demo.server";
-import { DEMO_PUSH_DISABLED } from "@/lib/painel/gate";
+import { DEMO_PUSH_DISABLED, TEST_PUSH_BODY, TEST_PUSH_NONE, TEST_PUSH_TITLE, testPushSentMessage } from "@/lib/painel/gate";
 
 const RESEND_URL = "https://api.resend.com/emails";
 const EMAIL = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
@@ -196,6 +196,43 @@ async function deliverWithWebPush(keys: Vapid, target: PushTarget, body: string)
   }
 }
 
+async function deliverShopPush(
+  shopId: string,
+  payload: string,
+  keys: Vapid,
+  sender?: PushSender,
+): Promise<{ sent: number; targeted: number }> {
+  const sql = await getSql();
+  const rows = await sql<{ id: string; endpoint: string; p256dh: string; auth: string }>`
+    select id, endpoint, p256dh, auth
+    from push_subscriptions
+    where shop_id = ${shopId}
+    order by created_at desc
+    limit 30
+  `;
+  if (!rows.length) return { sent: 0, targeted: 0 };
+  const deliver = sender ?? ((target: PushTarget) => deliverWithWebPush(keys, target, payload));
+  let sent = 0;
+  for (const row of rows) {
+    let outcome: "ok" | "gone" | "error" = "error";
+    try {
+      outcome = await deliver({ endpoint: row.endpoint, p256dh: row.p256dh, auth: row.auth }, payload);
+    } catch (err) {
+      console.error("[notify] push failed:", sanitizeNoticeError(err));
+      continue;
+    }
+    if (outcome === "gone") {
+      await sql`
+        delete from push_subscriptions
+        where id = ${row.id} and shop_id = ${shopId}
+      `;
+    } else if (outcome === "ok") {
+      sent += 1;
+    }
+  }
+  return { sent, targeted: rows.length };
+}
+
 async function sendBookingPush(notice: BookingNotice, sender?: PushSender): Promise<void> {
   if (await shopDemoEnabledById(notice.shopId)) {
     console.info("[notify] push skipped: demo mode");
@@ -206,32 +243,20 @@ async function sendBookingPush(notice: BookingNotice, sender?: PushSender): Prom
     console.info("[notify] push skipped: VAPID keys are not set");
     return;
   }
-  const sql = await getSql();
-  const rows = await sql<{ id: string; endpoint: string; p256dh: string; auth: string }>`
-    select id, endpoint, p256dh, auth
-    from push_subscriptions
-    where shop_id = ${notice.shopId}
-    order by created_at desc
-    limit 30
-  `;
-  if (!rows.length) return;
-  const body = pushLine(notice);
-  const deliver = sender ?? ((target: PushTarget) => deliverWithWebPush(keys, target, body));
-  for (const row of rows) {
-    let outcome: "ok" | "gone" | "error" = "error";
-    try {
-      outcome = await deliver({ endpoint: row.endpoint, p256dh: row.p256dh, auth: row.auth }, body);
-    } catch (err) {
-      console.error("[notify] push failed:", sanitizeNoticeError(err));
-      continue;
-    }
-    if (outcome === "gone") {
-      await sql`
-        delete from push_subscriptions
-        where id = ${row.id} and shop_id = ${notice.shopId}
-      `;
-    }
-  }
+  await deliverShopPush(notice.shopId, pushLine(notice), keys, sender);
+}
+
+/** Test notice for the session shop only. Does not read a shop id from the browser. */
+export async function sendShopTestPush(
+  shopId: string,
+  sender?: PushSender,
+): Promise<{ sent: number; message: string }> {
+  const keys = readVapid();
+  if (!keys) return { sent: 0, message: "Avisos não estão disponíveis." };
+  const payload = JSON.stringify({ title: TEST_PUSH_TITLE, body: TEST_PUSH_BODY, url: "/painel" });
+  const { sent, targeted } = await deliverShopPush(shopId, payload, keys, sender);
+  if (targeted === 0) return { sent: 0, message: TEST_PUSH_NONE };
+  return { sent, message: testPushSentMessage(sent) };
 }
 
 /** Email and push after the booking row is committed. Never throws. */
