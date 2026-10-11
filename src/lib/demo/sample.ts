@@ -119,11 +119,59 @@ function grid(input: DemoInput): Cell[] {
 }
 
 function demoPhone(index: number): string {
-  return `719${String(index + 1).padStart(8, "0")}`;
+  return `7190000${String(index + 1).padStart(4, "0")}`;
 }
 
+const FIRST_NAMES = [
+  "Ana",
+  "Bruno",
+  "Caio",
+  "Diego",
+  "Elena",
+  "Fabio",
+  "Helena",
+  "Igor",
+  "Julia",
+  "Kaique",
+  "Lara",
+  "Miguel",
+  "Nina",
+  "Otavio",
+  "Paula",
+  "Rafael",
+  "Sara",
+  "Tiago",
+  "Ursula",
+  "Vitor",
+];
+
+const LAST_NAMES = [
+  "Almeida",
+  "Barbosa",
+  "Cardoso",
+  "Dias",
+  "Esteves",
+  "Farias",
+  "Gomes",
+  "Henriques",
+  "Ibrahim",
+  "Jesus",
+  "Klein",
+  "Lopes",
+  "Moura",
+  "Nogueira",
+  "Oliveira",
+  "Pires",
+  "Queiroz",
+  "Ramos",
+  "Souza",
+  "Teixeira",
+];
+
 function demoName(index: number): string {
-  return `Visitante Demo ${String(index + 1).padStart(2, "0")}`;
+  const first = FIRST_NAMES[index % FIRST_NAMES.length] ?? "Ana";
+  const last = LAST_NAMES[Math.floor(index / FIRST_NAMES.length) % LAST_NAMES.length] ?? "Almeida";
+  return `${first} ${last}`;
 }
 
 type Span = { barberSlug: string; date: string; start: number; end: number };
@@ -153,7 +201,7 @@ export function activeFillRatio(plan: DemoPlan, input: DemoInput): number {
 }
 
 /**
- * Bookings from 3 days ago through 7 days ahead, about half the grid filled,
+ * Bookings from 3 days ago through 7 days ahead, about 30% of the grid filled,
  * plus a few cancelled rows and one or two blocks.
  */
 export function buildDemoSample(input: DemoInput): DemoPlan {
@@ -246,9 +294,9 @@ export function buildDemoSample(input: DemoInput): DemoPlan {
 
   const ordered = [...todayCells, ...otherCells];
   for (const spread of [true, false]) {
-    if (!cells.length || covered() / cells.length >= 0.5) break;
+    if (!cells.length || covered() / cells.length >= 0.3) break;
     for (const cell of ordered) {
-      if (covered() / cells.length >= 0.5) break;
+      if (covered() / cells.length >= 0.3) break;
       if (spread && usedBarbers.size < input.barbers.length && usedBarbers.has(cell.barberSlug)) continue;
       const fitting = input.services.filter((service) => cell.start + service.duration <= cell.shiftEnd);
       const pending = fitting.filter((service) => !usedServices.has(service.slug));
@@ -269,7 +317,7 @@ export function buildDemoSample(input: DemoInput): DemoPlan {
         person += 1;
         active.push(booking);
         const ratio = covered() / cells.length;
-        if (ratio > 0.6) {
+        if (ratio > 0.4) {
           active.pop();
           person -= 1;
           continue;

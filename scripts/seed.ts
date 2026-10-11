@@ -10,10 +10,11 @@
  * TEST_SHOP_PASSWORD when set; otherwise a random password is printed once.
  * Plain passwords are never written to the database or the repo.
  *
- * Both shops are marked is_demo. Re-running updates shop profiles, catalog
- * rows, weekly hours, and password hashes (and bumps session_version).
- * It does not delete bookings. When DEMO_MODE=true, demo shops with no
- * bookings receive a sample agenda.
+ * Only barbearia-leme is a demo shop (is_demo true). barbearia-teste is updated
+ * to is_demo false on every seed and gets no sample agenda. Re-running updates
+ * shop profiles, catalog rows, weekly hours, and password hashes (and bumps
+ * session_version). It does not delete bookings. When DEMO_MODE=true, demo
+ * shops with no bookings receive a sample agenda.
  */
 import { randomBytes } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
@@ -47,12 +48,12 @@ function asSql(client: Queryable) {
   return sql;
 }
 
-async function upsertShop(client: Queryable, shop: CatalogShop, passwordHash: string) {
+async function upsertShop(client: Queryable, shop: CatalogShop, passwordHash: string, isDemo: boolean) {
   const shopRow = await client.query(
     `insert into shops (
        slug, name, timezone, tagline, intro, city_line, seo_description,
        whatsapp, instagram, address, map_query, slot_minutes, year, is_demo
-     ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13, true)
+     ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
      on conflict (slug) do update set
        name = excluded.name,
        timezone = excluded.timezone,
@@ -66,7 +67,7 @@ async function upsertShop(client: Queryable, shop: CatalogShop, passwordHash: st
        map_query = excluded.map_query,
        slot_minutes = excluded.slot_minutes,
        year = excluded.year,
-       is_demo = true
+       is_demo = excluded.is_demo
      returning id`,
     [
       shop.slug,
@@ -82,6 +83,7 @@ async function upsertShop(client: Queryable, shop: CatalogShop, passwordHash: st
       shop.mapQuery,
       shop.slotMinutes,
       shop.year,
+      isDemo,
     ],
   );
   const shopId = shopRow.rows[0]?.id;
@@ -156,8 +158,8 @@ async function upsertShop(client: Queryable, shop: CatalogShop, passwordHash: st
 }
 
 async function seedBoth(client: Queryable, lemeHash: string, testHash: string) {
-  await upsertShop(client, lemeCatalog(), lemeHash);
-  await upsertShop(client, testShopCatalog(), testHash);
+  await upsertShop(client, lemeCatalog(), lemeHash, true);
+  await upsertShop(client, testShopCatalog(), testHash, false);
   if (process.env.DEMO_MODE?.trim() === "true") {
     await insertDemoSampleIfEmpty(asSql(client));
   }

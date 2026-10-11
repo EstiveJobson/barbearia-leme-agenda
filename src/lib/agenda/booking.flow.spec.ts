@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "vitest";
 import { getSql } from "@/lib/db";
 import { confirmBooking, listFreeSlots } from "@/lib/agenda/booking.server";
 import { allowBookingAttempt, resetBookingRateLimit } from "@/lib/agenda/rate-limit";

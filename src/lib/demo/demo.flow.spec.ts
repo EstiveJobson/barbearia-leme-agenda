@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "vitest";
 import bcrypt from "bcryptjs";
 import { shop } from "@/shop-config";
 import { getSql } from "@/lib/db";
@@ -59,12 +59,12 @@ function minutes(hhmm: string): number {
   return hour * 60 + minute;
 }
 
-test("sample agenda stays inside the window and fills about half the grid", () => {
+test("sample agenda stays inside the window and fills about 30 percent of the grid", () => {
   for (const today of ["2026-10-09", "2026-01-04", "2026-08-16"]) {
     const input = lemeInput(today);
     const plan = buildDemoSample(input);
     const ratio = activeFillRatio(plan, input);
-    assert.ok(ratio >= 0.4 && ratio <= 0.6, `${today} fill ${ratio}`);
+    assert.ok(ratio >= 0.2 && ratio <= 0.4, `${today} fill ${ratio}`);
     assert.ok(plan.blocks.length >= 1 && plan.blocks.length <= 2);
     const cancelled = plan.bookings.filter((booking) => booking.status === "cancelled");
     assert.ok(cancelled.length >= 1 && cancelled.length <= 5);
@@ -75,8 +75,8 @@ test("sample agenda stays inside the window and fills about half the grid", () =
     const seen = new Set<string>();
     for (const booking of plan.bookings) {
       assert.ok(booking.date >= min && booking.date <= max);
-      assert.match(booking.phone, /^719\d{8}$/);
-      assert.match(booking.name, /Demo/);
+      assert.match(booking.phone, /^7190000\d{4}$/);
+      assert.equal(/Demo|Visitante/.test(booking.name), false);
       if (booking.status !== "active") continue;
       const key = `${booking.barberSlug}|${booking.date}|${booking.time}`;
       assert.equal(seen.has(key), false);
@@ -301,12 +301,15 @@ test("demo reset, demo login, and shop isolation", async () => {
     const lemeBookings = await countFor("barbearia-leme", "bookings");
     const testeBookings = await countFor("barbearia-teste", "bookings");
     assert.ok(lemeBookings > 0);
-    assert.ok(testeBookings > 0);
-    assert.equal(lemeBookings + testeBookings, body.bookings);
-    const wiped = await sql<{ id: string }>`select id from bookings where customer_name = ${"Cliente Resetado"}`;
-    assert.equal(wiped.length, 0);
-    const subsLeft = await sql<{ n: number }>`select count(*)::int as n from push_subscriptions`;
-    assert.equal(Number(subsLeft[0]?.n ?? 0), 0);
+    assert.equal(testeBookings, 1);
+    assert.equal(body.bookings, lemeBookings);
+    const keptReset = await sql<{ id: string }>`select id from bookings where customer_name = ${"Cliente Resetado"}`;
+    assert.equal(keptReset.length, 1);
+    const subsLeft = await sql<{ endpoint: string }>`select endpoint from push_subscriptions order by endpoint`;
+    assert.deepEqual(
+      subsLeft.map((row) => row.endpoint),
+      ["https://push.example.test/teste"],
+    );
     assert.deepEqual(await catalogSnapshot(), before);
 
     const inserted = await sql<{ id: string }>`
@@ -318,8 +321,8 @@ test("demo reset, demo login, and shop isolation", async () => {
         ${teste.service_id},
         ${"Cliente Secreto Teste"},
         ${"92900000001"},
-        ${new Date("2026-10-10T15:00:00Z")},
-        ${new Date("2026-10-10T16:00:00Z")},
+        ${new Date("2026-10-11T15:00:00Z")},
+        ${new Date("2026-10-11T16:00:00Z")},
         'active'
       )
       returning id
@@ -471,8 +474,13 @@ test("demo reset, demo login, and shop isolation", async () => {
       { endpoint: "https://push.example.test/direct", p256dh: "cccccccccccccccc", auth: "dddddddddddddddd" },
     );
     assert.equal(direct.ok, false);
-    const storedPush = await sql<{ n: number }>`select count(*)::int as n from push_subscriptions`;
-    assert.equal(Number(storedPush[0]?.n ?? 0), 0);
+    const storedPush = await sql<{ endpoint: string }>`
+      select endpoint from push_subscriptions order by endpoint
+    `;
+    assert.deepEqual(
+      storedPush.map((row) => row.endpoint),
+      ["https://push.example.test/teste"],
+    );
 
     await sql`
       insert into push_subscriptions (shop_id, owner_account_id, endpoint, p256dh, auth)

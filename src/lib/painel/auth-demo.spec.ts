@@ -227,6 +227,18 @@ describe("panel auth", () => {
 });
 
 describe("demo flag", () => {
+  it("refuses demo login for barbearia-teste even when DEMO_MODE is on", async () => {
+    process.env.DEMO_MODE = "true";
+    const sql = await getSql();
+    await sql`update shops set is_demo = true where slug = ${LEME}`;
+    await sql`update shops set is_demo = false where slug = ${TESTE}`;
+    const denied = await loginDemoOwner(TESTE, "ip-demo-teste-refused");
+    expect(denied.ok).toBe(false);
+    if (!denied.ok) expect(denied.code).toBe("not_found");
+    const allowed = await loginDemoOwner(LEME, "ip-demo-leme-allowed");
+    expect(allowed.ok).toBe(true);
+  });
+
   it("does not demo-login or reset a shop with is_demo false", async () => {
     process.env.DEMO_MODE = "true";
     const sql = await getSql();

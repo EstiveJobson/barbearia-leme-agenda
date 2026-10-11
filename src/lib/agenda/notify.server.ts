@@ -240,6 +240,27 @@ export async function notifyNewBooking(notice: BookingNotice, hooks?: NotifyHook
   await sendBookingPush(notice, hooks?.pushSender);
 }
 
+/**
+ * Start email and push without blocking the booking response.
+ * On Vercel, waitUntil keeps the invocation alive. Locally the promise just runs.
+ * Vitest awaits it so existing assertions stay deterministic.
+ */
+export async function scheduleBookingNotice(notice: BookingNotice): Promise<void> {
+  const work = notifyNewBooking(notice).catch((err) => {
+    console.error("[notify] new booking notice failed:", sanitizeNoticeError(err));
+  });
+  if (process.env.VITEST) {
+    await work;
+    return;
+  }
+  try {
+    const { waitUntil } = await import("@vercel/functions");
+    waitUntil(work);
+  } catch {
+    // Local fallback: the promise is already running.
+  }
+}
+
 function endpointOk(value: string): boolean {
   if (value.length < 12 || value.length > 2000) return false;
   try {
@@ -274,4 +295,20 @@ export async function savePushSubscription(
         created_at = now()
   `;
   return { ok: true };
+}
+
+/** Removes this device's row. Other devices and other shops stay. */
+export async function deletePushSubscription(
+  owner: { ownerId: string; shopId: string },
+  endpoint: string,
+): Promise<void> {
+  const value = endpoint.trim();
+  if (!value) return;
+  const sql = await getSql();
+  await sql`
+    delete from push_subscriptions
+    where shop_id = ${owner.shopId}
+      and owner_account_id = ${owner.ownerId}
+      and endpoint = ${value}
+  `;
 }

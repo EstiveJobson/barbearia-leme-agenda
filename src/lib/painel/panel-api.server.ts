@@ -80,3 +80,11 @@ export async function savePushForToken(
   }
   return { ok: true as const };
 }
+
+export async function removePushForToken(token: string | undefined, endpoint: string) {
+  const owner = await requireOwner(token);
+  if (denied(owner)) return owner;
+  const { deletePushSubscription } = await import("@/lib/agenda/notify.server");
+  await deletePushSubscription(owner, endpoint);
+  return { ok: true as const };
+}
