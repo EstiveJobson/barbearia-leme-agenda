@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useDemoMode } from "@/components/demo-banner";
-import { fetchPushSetup, savePushSubscription } from "@/lib/painel/painel.functions";
+import { fetchPushSetup, savePushSubscription, sendTestPush } from "@/lib/painel/painel.functions";
 import { DEMO_PUSH_DISABLED } from "@/lib/painel/gate";
 
 const PANEL_SW = "/painel/sw.js";
@@ -40,7 +40,9 @@ export function PushNotices() {
   const [publicKey, setPublicKey] = useState<string | null>(null);
   const [active, setActive] = useState(false);
   const [pending, setPending] = useState(false);
+  const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<string | null>(null);
 
   useEffect(() => {
     let cancel = false;
@@ -102,6 +104,21 @@ export function PushNotices() {
     }
   }
 
+  async function sendTest() {
+    if (sending) return;
+    setSending(true);
+    setResult(null);
+    try {
+      const sent = await sendTestPush();
+      if ("message" in sent && sent.message) setResult(sent.message);
+      else setResult("Não foi possível enviar o aviso.");
+    } catch {
+      setResult("Não foi possível enviar o aviso.");
+    } finally {
+      setSending(false);
+    }
+  }
+
   return (
     <div className="grid gap-2">
       <button
@@ -112,11 +129,22 @@ export function PushNotices() {
       >
         {active ? "Avisos ativos" : pending ? "Ativando…" : "Ativar avisos"}
       </button>
+      {active && (
+        <button
+          type="button"
+          onClick={() => void sendTest()}
+          disabled={sending}
+          className="min-h-12 w-full border border-gold px-4 text-sm tracking-wide text-gold uppercase disabled:opacity-70"
+        >
+          {sending ? "Enviando…" : "Enviar aviso de teste"}
+        </button>
+      )}
       <p className="text-pretty text-sm text-mist">
         No Android, os avisos funcionam na hora. No iPhone, só funciona com o painel adicionado à tela de início, no iOS
         16.4 ou posterior.
       </p>
       {error && <p className="text-sm text-gold">{error}</p>}
+      {result && <p className="text-pretty text-sm text-mist">{result}</p>}
     </div>
   );
 }

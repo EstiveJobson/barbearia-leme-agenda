@@ -247,3 +247,15 @@ export const savePushSubscription = createServerFn({ method: "POST" })
     }
     return { ok: true as const };
   });
+
+export const sendTestPush = createServerFn({ method: "POST" }).handler(async () => {
+  const { sendTestPushForToken } = await import("@/lib/painel/panel-api.server");
+  const result = await sendTestPushForToken(await ownerToken());
+  if (!result.ok) {
+    await setStatus(result.status);
+    const message = "message" in result ? result.message : undefined;
+    if (message) return { ok: false as const, message };
+    return { ok: false as const };
+  }
+  return { ok: true as const, sent: result.sent, message: result.message };
+});
