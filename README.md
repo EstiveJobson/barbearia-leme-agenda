@@ -42,12 +42,14 @@ npm run db:seed
 
 `db:migrate` applies pending files in `migrations/` inside a transaction and records them in `_migrations`. It does not apply `migrations/auth/`.
 
+A new database is not a demo until `npm run db:seed` runs after the migrations. `0006_shop_is_demo.sql` creates `shops.is_demo` as false. Only the seed sets `barbearia-leme` to true. Without that seed, demo login, the banner, and the sample agenda stay off even when `DEMO_MODE=true`.
+
 `db:seed` is idempotent. It upserts:
 
 - **Barbearia Leme** (`slug` `barbearia-leme`, timezone `America/Bahia`) with the services, prices, durations, barbers, and weekly hours from `src/shop-config.ts`
 - **Barbearia Teste** (`slug` `barbearia-teste`, timezone `America/Manaus`) with 2 barbers, 3 services, and weekly hours, used only for isolation tests. It has no WhatsApp number, so the missing-number path can be checked without touching Leme.
 
-Each shop gets one `owner_accounts` row. Leme's password hash is bcrypt of `ADMIN_PASSWORD`. The test shop uses `TEST_SHOP_PASSWORD` when that variable is set; otherwise `db:seed` generates a random password and prints it once. Plain passwords are not stored. Re-seeding a password increments `session_version`, so older panel cookies stop working. Both shops are marked `is_demo`. When `DEMO_MODE=true`, a demo shop that has no bookings yet also receives a sample agenda. Existing bookings are not deleted.
+Each shop gets one `owner_accounts` row. Leme's password hash is bcrypt of `ADMIN_PASSWORD`. The test shop uses `TEST_SHOP_PASSWORD` when that variable is set; otherwise `db:seed` generates a random password and prints it once. Plain passwords are not stored. Re-seeding a password increments `session_version`, so older panel cookies stop working. Only `barbearia-leme` is marked `is_demo`. Re-running the seed sets `barbearia-teste` back to `is_demo = false` and does not generate bookings or blocks for it. When `DEMO_MODE=true`, a demo shop that has no bookings yet also receives a sample agenda. Existing bookings are not deleted.
 
 If `DATABASE_URL` is set, `db:seed` writes to that Postgres database. If it is missing, the same upsert runs against an in-memory PGLite database after applying `migrations/*.sql`. `ADMIN_PASSWORD` is required in both cases. `db:migrate` exits with an error when `NODE_ENV=production` and `DATABASE_URL` is missing.
 
@@ -82,13 +84,15 @@ Server-only variables are read in server modules and seed/migrate scripts. They 
 
 ## Owner panel
 
-`/painel/entrar?loja=<slug>` asks for that shop's owner password. If `loja` is omitted, the screen sends Leme's slug; the server does not pick a shop on its own. It loads only that shop's bcrypt hash. A wrong shop or a wrong password both return "Senha ou loja incorreta." A correct password sets an httpOnly cookie signed with `SESSION_SECRET` (30 days). The cookie stores the owner account id and `session_version`. Every panel request loads `shop_id` from that row and rejects the cookie when `session_version` does not match. Every panel query ignores any shop id sent by the browser.
+Owner login uses the full shop slug: `/painel/entrar?loja=<slug>`, for example `/painel/entrar?loja=barbearia-leme`. If `loja` is omitted, the screen sends Leme's slug; the server does not pick a shop on its own. It loads only that shop's bcrypt hash. A wrong shop or a wrong password both return "Senha ou loja incorreta." A correct password sets an httpOnly cookie signed with `SESSION_SECRET` (30 days). The cookie stores the owner account id and `session_version`. Every panel request loads `shop_id` from that row and rejects the cookie when `session_version` does not match. Every panel query ignores any shop id sent by the browser.
 
-Set `ADMIN_PASSWORD` before the first local seed so an owner row exists, and set `SESSION_SECRET` before opening the panel. "Sair" clears the cookie. Login attempts are rate-limited per IP in `rate_limits`.
+Set `ADMIN_PASSWORD` before the first local seed so an owner row exists, and set `SESSION_SECRET` before opening the panel. "Sair" unsubscribes this device's push subscription, deletes that row for the session shop and owner, and then clears the cookie. If the device has no subscription, it only clears the cookie. Login attempts are rate-limited per IP in `rate_limits`.
+
+Semana shows seven days starting today in the shop timezone, with arrows for the previous week (not before today minus 7 days) and the next week (through the same 14 days the public booking offers). The barber filter applies to that range.
 
 ## Notifications
 
-After a booking is committed, the server emails `NOTIFY_EMAIL_TO` through Resend. The message is in Portuguese. The subject is `Novo agendamento: [serviço] em [dd/mm] às [hh:mm]`, and the body includes the customer, service, barber, day, time, price, and a link to `PUBLIC_SITE_URL/painel`. If `RESEND_API_KEY`, `EMAIL_FROM`, or `NOTIFY_EMAIL_TO` is missing, the email is skipped. A failed send is logged without the API key. The booking stays saved and the customer still sees success.
+After a booking is committed, the customer response returns immediately. Email and push run in the background with `waitUntil` from `@vercel/functions` (the promise just continues when that API is unavailable, which is the local case). The email goes to `NOTIFY_EMAIL_TO` through Resend. The message is in Portuguese. The subject is `Novo agendamento: [serviço] em [dd/mm] às [hh:mm]`, and the body includes the customer, service, barber, day, time, price, and a link to `PUBLIC_SITE_URL/painel`. If `RESEND_API_KEY`, `EMAIL_FROM`, or `NOTIFY_EMAIL_TO` is missing, the email is skipped. A failed send is logged without the API key and does not change the booking. The customer still sees success.
 
 When both VAPID keys are set, and demo mode is off, the panel shows **Ativar avisos**. That stores the browser subscription in `push_subscriptions` for the session shop, and each new booking pushes `Novo agendamento: [serviço], [dd/mm] [hh:mm], [nome]` to that shop. Subscriptions that the push service reports as expired (HTTP 404 or 410) are deleted. If either VAPID key is missing, the button stays hidden. In demo mode push is disabled: the button is replaced by a notice, the push endpoints refuse the request, and no push is sent.
 
@@ -98,9 +102,9 @@ Demo mode stays off unless `DEMO_MODE` is exactly `true`. The server checks that
 
 When both are true for a shop:
 
-- `/painel/entrar?loja=<slug>` shows **Entrar como dono (demo)** for that shop only. The button signs in with no password, and only if that shop has `is_demo`. The same action returns 404 when demo mode is off or the shop is not a demo shop.
+- `/painel/entrar?loja=<slug>` shows **Entrar como dono (demo)** only when that shop has `is_demo`. `barbearia-teste` does not, so the button stays hidden there and the server refuses a passwordless login (404) even when `DEMO_MODE=true`. The same action returns 404 when demo mode is off.
 - The public site shows **Demonstração** when the public shop is a demo shop. The panel shows it for the signed-in shop. The login screen shows it for the shop in `loja`.
-- Sample bookings are created by `db:seed` (only for demo shops that have no bookings, and only when `DEMO_MODE=true`) and by the nightly reset. A running process may fill a missing sample at most once, in memory, with no global lock and no count on later requests.
+- Sample bookings use fictional Brazilian names and phones such as `(71) 90000-0001`, and fill about 30% of the grid. They are created by `db:seed` (only for `is_demo` shops that have no bookings, and only when `DEMO_MODE=true`) and by the nightly reset. `barbearia-teste` is never filled or wiped by the reset. A running process may fill a missing sample at most once, in memory, with no global lock and no count on later requests.
 - Push stays off for that shop. The panel hides **Ativar avisos** and shows **Avisos desativados na demonstração.** The endpoints that return the VAPID public key and that save a subscription respond `403` with `{ "error": "Avisos desativados na demonstração." }` and store nothing. A request with no session is `401` even in demo mode. Email still goes out. Push is not sent for that shop, including to subscriptions already in the database.
 - `GET /api/demo/reset` deletes bookings, blocks, and push subscriptions for every shop with `is_demo`, then reloads each of those shops' sample for the current day. Shops with `is_demo = false` are left untouched. Services, barbers, hours, and owner accounts are left as they are. The route returns 404 when demo mode is off. When it is on, the request must send `Authorization: Bearer <CRON_SECRET>`. Anything else is 401. POST and every other method return 405 with an `Allow: GET` header.
 

@@ -2,7 +2,7 @@
   "name": "Painel Leme",
   "short_name": "Painel",
   "start_url": "/painel",
-  "scope": "/painel",
+  "scope": "/painel/",
   "display": "standalone",
   "lang": "pt-BR",
   "background_color": "#090909",

@@ -1,9 +1,10 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { PushNotices } from "@/components/painel/push";
+import { PushNotices, panelPushSubscription } from "@/components/painel/push";
 import {
   cancelPanelBooking,
   createPanelBlock,
   fetchAgenda,
+  removeOwnPush,
   removePanelBlock,
   submitPanelLogout,
 } from "@/lib/painel/painel.functions";
@@ -42,6 +43,7 @@ type Barber = { id: string; name: string };
 
 export function PanelAgenda() {
   const [view, setView] = useState<View>("today");
+  const [weekOffset, setWeekOffset] = useState(0);
   const [barberId, setBarberId] = useState("");
   const [includeCancelled, setIncludeCancelled] = useState(false);
   const [shopName, setShopName] = useState("Painel");
@@ -58,7 +60,12 @@ export function PanelAgenda() {
     setLoading(true);
     setError(null);
     void fetchAgenda({
-      data: { view, barberId: barberId || null, includeCancelled },
+      data: {
+        view,
+        weekOffset: view === "week" ? weekOffset : 0,
+        barberId: barberId || null,
+        includeCancelled,
+      },
     })
       .then((result) => {
         if (cancel) return;
@@ -79,9 +86,18 @@ export function PanelAgenda() {
     return () => {
       cancel = true;
     };
-  }, [view, barberId, includeCancelled, refresh]);
+  }, [view, barberId, includeCancelled, refresh, weekOffset]);
 
   async function logout() {
+    try {
+      const subscription = await panelPushSubscription();
+      if (subscription) {
+        await removeOwnPush({ data: { endpoint: subscription.endpoint } });
+        await subscription.unsubscribe();
+      }
+    } catch {
+      // Leaving the panel still has to clear the session.
+    }
     await submitPanelLogout();
     window.location.assign("/painel/entrar");
   }
@@ -150,6 +166,26 @@ export function PanelAgenda() {
       </div>
 
       <div className="flex-1 px-5 pt-6 pb-36">
+        {view === "week" && (
+          <div className="mb-4 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              disabled={weekOffset <= -1}
+              onClick={() => setWeekOffset((value) => Math.max(-1, value - 1))}
+              className="min-h-12 border border-line px-2 text-sm tracking-wide uppercase disabled:opacity-40"
+            >
+              Semana anterior
+            </button>
+            <button
+              type="button"
+              disabled={weekOffset >= 1}
+              onClick={() => setWeekOffset((value) => Math.min(1, value + 1))}
+              className="min-h-12 border border-line px-2 text-sm tracking-wide uppercase disabled:opacity-40"
+            >
+              Próxima semana
+            </button>
+          </div>
+        )}
         {loading && <p className="text-mist">Carregando a agenda…</p>}
         {error && <p className="mb-3 text-sm text-gold">{error}</p>}
         {!loading &&

@@ -22,14 +22,17 @@ function slugInput(input: unknown): { slug: string } {
 
 function agendaInput(input: unknown): {
   view: "today" | "week";
+  weekOffset: number;
   barberId: string | null;
   includeCancelled: boolean;
 } {
   const record = asRecord(input);
   const view = record.view === "week" ? "week" : "today";
   const barberId = text(record.barberId).trim();
+  const rawOffset = typeof record.weekOffset === "number" ? record.weekOffset : Number(record.weekOffset);
   return {
     view,
+    weekOffset: Number.isFinite(rawOffset) ? Math.trunc(rawOffset) : 0,
     barberId: barberId || null,
     includeCancelled: record.includeCancelled === true,
   };
@@ -155,6 +158,18 @@ export const submitPanelLogout = createServerFn({ method: "POST" }).handler(asyn
   deleteCookie(OWNER_COOKIE, OWNER_COOKIE_CLEAR);
   return { ok: true as const };
 });
+
+export const removeOwnPush = createServerFn({ method: "POST" })
+  .validator((input: unknown) => ({ endpoint: text(asRecord(input).endpoint).trim() }))
+  .handler(async ({ data }) => {
+    const { removePushForToken } = await import("@/lib/painel/panel-api.server");
+    const result = await removePushForToken(await ownerToken(), data.endpoint);
+    if (!result.ok) {
+      await setStatus(result.status);
+      return { ok: false as const };
+    }
+    return { ok: true as const };
+  });
 
 export const fetchAgenda = createServerFn({ method: "POST" })
   .validator(agendaInput)

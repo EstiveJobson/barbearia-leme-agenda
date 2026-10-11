@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "vitest";
 import bcrypt from "bcryptjs";
 import { getSql } from "@/lib/db";
 import { confirmBooking, listFreeSlots } from "@/lib/agenda/booking.server";

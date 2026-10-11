@@ -5,7 +5,7 @@ import { parseBrazilianPhone } from "@/lib/agenda/phone";
 import { freeStartTimes, rangesOverlap, unionFreeTimes, type BusyRange, type Shift } from "@/lib/agenda/slots";
 import { ANY_BARBER_SLUG, BookingRejected } from "@/lib/agenda/booking-error";
 import { allowBookingAttempt, RATE_LIMIT_MESSAGE } from "@/lib/agenda/rate-limit";
-import { notifyNewBooking, type BookingNotice } from "@/lib/agenda/notify.server";
+import { scheduleBookingNotice, type BookingNotice } from "@/lib/agenda/notify.server";
 import { ensureDemoSampleOnce } from "@/lib/demo/demo.server";
 import { NO_SHOP_WHATSAPP, shopWhatsAppLink } from "@/lib/agenda/whatsapp.server";
 const DAY_COUNT = 14;
@@ -471,14 +471,6 @@ export async function confirmBooking(input: ConfirmInput, ip: string): Promise<C
     throw new BookingRejected("unavailable", "Não foi possível concluir o agendamento. Tente de novo.");
   }
 
-  try {
-    await notifyNewBooking(saved.notice);
-  } catch (err) {
-    const text = err instanceof Error ? err.message : "unknown";
-    console.error(
-      "[notify] new booking notice failed:",
-      text.replace(/re_[A-Za-z0-9_-]+/g, "[redacted]").slice(0, 300),
-    );
-  }
+  await scheduleBookingNotice(saved.notice);
   return saved.result;
 }

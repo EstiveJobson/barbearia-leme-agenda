@@ -20,6 +20,8 @@ export type AgendaView = "today" | "week";
 
 export type AgendaInput = {
   view: AgendaView;
+  /** Week pages only. 0 is today through today+6. Clamped to -1..1. */
+  weekOffset?: number;
   barberId: string | null;
   includeCancelled: boolean;
 };
@@ -122,13 +124,28 @@ function dayLabel(iso: string, today: string): string {
   return `${titled}, ${pad(day)}/${pad(month)}/${year}`;
 }
 
-function viewDays(view: AgendaView, timeZone: string, now: Date): { today: string; days: string[] } {
+function viewDays(view: AgendaView, timeZone: string, now: Date, weekOffset = 0): { today: string; days: string[] } {
   const today = zonedIso(now, timeZone);
   if (view === "today") return { today, days: [today] };
-  const weekday = weekdayOf(today);
-  const mondayOffset = weekday === 0 ? -6 : 1 - weekday;
-  const monday = addDays(today, mondayOffset);
-  return { today, days: Array.from({ length: 7 }, (_, index) => addDays(monday, index)) };
+  return { today, days: weekRange(today, weekOffset) };
+}
+
+/**
+ * Seven shop-local days. Offset 0 starts today. -1 is the previous week and
+ * does not start before today minus 7 days. +1 is the next week, which covers
+ * the rest of the public 14-day booking window (today through today+13).
+ */
+export function clampWeekOffset(weekOffset: number): number {
+  if (!Number.isFinite(weekOffset)) return 0;
+  const offset = Math.trunc(weekOffset);
+  if (offset < -1) return -1;
+  if (offset > 1) return 1;
+  return offset;
+}
+
+export function weekRange(today: string, weekOffset = 0): string[] {
+  const start = addDays(today, clampWeekOffset(weekOffset) * 7);
+  return Array.from({ length: 7 }, (_, index) => addDays(start, index));
 }
 
 function isUuid(value: string | null | undefined): value is string {
@@ -167,7 +184,7 @@ export async function loadAgenda(
     if (!owned.length) return { ok: false, status: 404 };
   }
 
-  const { today, days } = viewDays(input.view, owner.timezone, now);
+  const { today, days } = viewDays(input.view, owner.timezone, now, input.weekOffset ?? 0);
   const rangeStart = zonedSlotToUtc(days[0] ?? today, "00:00", owner.timezone);
   const rangeEnd = zonedSlotToUtc(addDays(days[days.length - 1] ?? today, 1), "00:00", owner.timezone);
 

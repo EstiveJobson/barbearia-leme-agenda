@@ -3,6 +3,29 @@ import { useDemoMode } from "@/components/demo-banner";
 import { fetchPushSetup, savePushSubscription } from "@/lib/painel/painel.functions";
 import { DEMO_PUSH_DISABLED } from "@/lib/painel/gate";
 
+const PANEL_SW = "/painel/sw.js";
+const PANEL_SCOPE = "/painel/";
+
+async function retireRootPanelWorker(): Promise<void> {
+  if (!("serviceWorker" in navigator)) return;
+  const registrations = await navigator.serviceWorker.getRegistrations();
+  await Promise.all(
+    registrations.map(async (registration) => {
+      const script =
+        registration.active?.scriptURL ?? registration.waiting?.scriptURL ?? registration.installing?.scriptURL ?? "";
+      if (script.includes("/painel-sw.js")) await registration.unregister();
+    }),
+  );
+}
+
+/** Panel worker only. Drops a leftover root `/painel-sw.js` registration. */
+export async function panelPushSubscription(): Promise<PushSubscription | null> {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) return null;
+  await retireRootPanelWorker();
+  const registration = await navigator.serviceWorker.register(PANEL_SW, { scope: PANEL_SCOPE });
+  return registration.pushManager.getSubscription();
+}
+
 function urlBase64ToUint8Array(value: string): Uint8Array {
   const padding = "=".repeat((4 - (value.length % 4)) % 4);
   const base64 = (value + padding).replace(/-/g, "+").replace(/_/g, "/");
@@ -20,14 +43,13 @@ export function PushNotices() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (demo) return;
     let cancel = false;
+    void retireRootPanelWorker().catch(() => undefined);
+    if (demo) return;
     void fetchPushSetup().then(async (result) => {
       if (cancel || !("ok" in result) || !result.ok || !result.enabled) return;
       setPublicKey(result.publicKey);
-      if (!("serviceWorker" in navigator)) return;
-      const registration = await navigator.serviceWorker.getRegistration();
-      const existing = await registration?.pushManager.getSubscription();
+      const existing = await panelPushSubscription();
       if (!cancel && existing) setActive(true);
     }).catch(() => undefined);
     return () => {
@@ -55,7 +77,7 @@ export function PushNotices() {
         setError("O navegador bloqueou os avisos.");
         return;
       }
-      const registration = await navigator.serviceWorker.register("/painel-sw.js");
+      const registration = await navigator.serviceWorker.register(PANEL_SW, { scope: PANEL_SCOPE });
       const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(publicKey ?? "") as BufferSource,

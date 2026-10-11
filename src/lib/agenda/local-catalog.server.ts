@@ -4,12 +4,12 @@ import type { TaggedSql } from "@/lib/demo/sample-write";
 
 type Query = <T = Record<string, unknown>>(text: string, params?: unknown[]) => Promise<T[]>;
 
-async function upsertShop(query: Query, shop: CatalogShop, passwordHash: string | null) {
+async function upsertShop(query: Query, shop: CatalogShop, passwordHash: string | null, isDemo: boolean) {
   const shopRows = await query<{ id: string }>(
     `insert into shops (
        slug, name, timezone, tagline, intro, city_line, seo_description,
        whatsapp, instagram, address, map_query, slot_minutes, year, is_demo
-     ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13, true)
+     ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
      on conflict (slug) do update set
        name = excluded.name,
        timezone = excluded.timezone,
@@ -23,7 +23,7 @@ async function upsertShop(query: Query, shop: CatalogShop, passwordHash: string 
        map_query = excluded.map_query,
        slot_minutes = excluded.slot_minutes,
        year = excluded.year,
-       is_demo = true
+       is_demo = excluded.is_demo
      returning id`,
     [
       shop.slug,
@@ -39,6 +39,7 @@ async function upsertShop(query: Query, shop: CatalogShop, passwordHash: string 
       shop.mapQuery,
       shop.slotMinutes,
       shop.year,
+      isDemo,
     ],
   );
   const shopId = shopRows[0]?.id;
@@ -117,8 +118,8 @@ export async function seedLocalCatalogIfEmpty(query: Query): Promise<void> {
   if (Number(existing[0]?.n ?? 0) > 0) return;
   const password = process.env.ADMIN_PASSWORD?.trim();
   const passwordHash = password ? await bcrypt.hash(password, 12) : null;
-  await upsertShop(query, lemeCatalog(), passwordHash);
-  await upsertShop(query, testShopCatalog(), passwordHash);
+  await upsertShop(query, lemeCatalog(), passwordHash, true);
+  await upsertShop(query, testShopCatalog(), passwordHash, false);
   if (process.env.DEMO_MODE?.trim() !== "true") return;
   const { insertDemoSampleIfEmpty } = await import("@/lib/demo/sample-write");
   await insertDemoSampleIfEmpty(toSql(query));
